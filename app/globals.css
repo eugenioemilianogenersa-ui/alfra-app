@@ -1,0 +1,57 @@
+@import "tailwindcss";
+
+/* ===========================
+   PALETA DE COLORES ALFRA 🍺
+   =========================== */
+:root {
+  --alfra-primary: #756557;   /* marrón AlFra */
+  --alfra-accent: #5ca05f;    /* verde lúpulo */
+  --alfra-action: #f48c32;    /* naranja dorado */
+
+  --background: #f3f4f6;
+  --surface: #ffffff;
+
+  --text: #0f172a;
+  --text-muted: #64748b;
+}
+
+/* Modo oscuro (opcional automático) */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #111827;
+    --surface: #1f2937;
+    --text: #f1f5f9;
+    --text-muted: #94a3b8;
+  }
+}
+
+/* ====== RESET SUAVE Y FUENTE ====== */
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  min-height: 100vh;
+  background-color: var(--background);
+  color: var(--text);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* selección de texto */
+::selection {
+  background-color: var(--alfra-accent);
+  color: #fff;
+}
+
+/* scroll minimal */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-thumb {
+  background-color: var(--alfra-primary);
+  border-radius: 9999px;
+}
