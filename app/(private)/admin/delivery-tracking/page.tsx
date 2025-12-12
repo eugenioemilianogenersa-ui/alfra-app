@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import React, { Suspense, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabaseClient";
 import dynamic from "next/dynamic";
 
@@ -29,10 +29,83 @@ type DeliveryTrackingRow = {
   last_timestamp: string | null;
 };
 
-export default function DeliveryTrackingAdminPage() {
+function DeliveryTrackingAdminInner() {
   const supabase = createClient();
   const [rows, setRows] = useState<DeliveryTrackingRow[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const fetchTrackingData = async () => {
+    try {
+      const { data: deliveries, error: delErr } = await supabase
+        .from("deliveries")
+        .select("id, order_id, delivery_user_id, status")
+        .in("status", ACTIVE_DELIVERY_STATUS);
+
+      if (delErr) {
+        console.error("Error deliveries:", delErr.message);
+        return;
+      }
+
+      if (!deliveries || deliveries.length === 0) {
+        setRows([]);
+        return;
+      }
+
+      const orderIds = deliveries.map((d) => d.order_id);
+      const userIds = deliveries.map((d) => d.delivery_user_id);
+
+      const { data: orders, error: ordErr } = await supabase
+        .from("orders")
+        .select("id, cliente_nombre, direccion_entrega, monto, estado")
+        .in("id", orderIds);
+
+      if (ordErr) console.error("Error orders:", ordErr.message);
+
+      const { data: profiles, error: profErr } = await supabase
+        .from("profiles")
+        .select("id, display_name, email")
+        .in("id", userIds);
+
+      if (profErr) console.error("Error profiles:", profErr.message);
+
+      const rowsFinal: DeliveryTrackingRow[] = [];
+
+      for (const d of deliveries) {
+        const order = orders?.find((o) => o.id === d.order_id);
+        const profile = profiles?.find((p) => p.id === d.delivery_user_id);
+
+        const { data: lastLoc, error: locErr } = await supabase
+          .from("delivery_locations")
+          .select("lat, lng, timestamp")
+          .eq("delivery_id", d.id)
+          .order("timestamp", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (locErr) console.error("Error last location:", locErr.message);
+
+        rowsFinal.push({
+          delivery_id: d.id,
+          order_id: d.order_id,
+          cliente_nombre: order?.cliente_nombre ?? null,
+          direccion_entrega: order?.direccion_entrega ?? null,
+          monto: order?.monto ?? null,
+          repartidor_nombre:
+            profile?.display_name ||
+            (profile?.email ? profile.email.split("@")[0] : "Repartidor"),
+          status: d.status ?? null,
+          order_estado: order?.estado ?? null,
+          last_lat: lastLoc?.lat ?? null,
+          last_lng: lastLoc?.lng ?? null,
+          last_timestamp: lastLoc?.timestamp ?? null,
+        });
+      }
+
+      setRows(rowsFinal);
+    } catch (e: any) {
+      console.error("Error fetchTrackingData:", e?.message || e);
+    }
+  };
 
   useEffect(() => {
     const load = async () => {
@@ -65,88 +138,6 @@ export default function DeliveryTrackingAdminPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const fetchTrackingData = async () => {
-    try {
-      // 1) Deliveries activos
-      const { data: deliveries, error: delErr } = await supabase
-        .from("deliveries")
-        .select("id, order_id, delivery_user_id, status")
-        .in("status", ACTIVE_DELIVERY_STATUS);
-
-      if (delErr) {
-        console.error("Error deliveries:", delErr.message);
-        return;
-      }
-      if (!deliveries || deliveries.length === 0) {
-        setRows([]);
-        return;
-      }
-
-      const orderIds = deliveries.map((d) => d.order_id);
-      const userIds = deliveries.map((d) => d.delivery_user_id);
-
-      // 2) Orders
-      const { data: orders, error: ordErr } = await supabase
-        .from("orders")
-        .select("id, cliente_nombre, direccion_entrega, monto, estado")
-        .in("id", orderIds);
-
-      if (ordErr) {
-        console.error("Error orders:", ordErr.message);
-      }
-
-      // 3) Profiles (repartidores)
-      const { data: profiles, error: profErr } = await supabase
-        .from("profiles")
-        .select("id, display_name, email")
-        .in("id", userIds);
-
-      if (profErr) {
-        console.error("Error profiles:", profErr.message);
-      }
-
-      const rowsFinal: DeliveryTrackingRow[] = [];
-
-      for (const d of deliveries) {
-        const order = orders?.find((o) => o.id === d.order_id);
-        const profile = profiles?.find((p) => p.id === d.delivery_user_id);
-
-        // última ubicación
-        const { data: lastLoc, error: locErr } = await supabase
-          .from("delivery_locations")
-          .select("lat, lng, timestamp")
-          .eq("delivery_id", d.id)
-          .order("timestamp", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-
-        if (locErr) {
-          console.error("Error last location:", locErr.message);
-        }
-
-        rowsFinal.push({
-          delivery_id: d.id,
-          order_id: d.order_id,
-          cliente_nombre: order?.cliente_nombre ?? null,
-          direccion_entrega: order?.direccion_entrega ?? null,
-          monto: order?.monto ?? null,
-          repartidor_nombre:
-            profile?.display_name ||
-            (profile?.email ? profile.email.split("@")[0] : "Repartidor"),
-          status: d.status ?? null,
-          order_estado: order?.estado ?? null,
-          last_lat: lastLoc?.lat ?? null,
-          last_lng: lastLoc?.lng ?? null,
-          last_timestamp: lastLoc?.timestamp ?? null,
-        });
-      }
-
-      setRows(rowsFinal);
-    } catch (e: any) {
-      console.error("Error fetchTrackingData:", e.message);
-    }
-  };
 
   if (loading) {
     return (
@@ -199,9 +190,7 @@ export default function DeliveryTrackingAdminPage() {
                     🛵 Repartidor:{" "}
                     <span className="font-semibold">{r.repartidor_nombre}</span>
                   </p>
-                  <p className="text-xs text-slate-500">
-                    📍 {r.direccion_entrega}
-                  </p>
+                  <p className="text-xs text-slate-500">📍 {r.direccion_entrega}</p>
                   {r.monto !== null && (
                     <p className="text-sm font-bold text-emerald-600">
                       💰 ${r.monto}
@@ -242,7 +231,6 @@ export default function DeliveryTrackingAdminPage() {
                 </div>
               </div>
 
-              {/* Mapa embebido si hay posición */}
               {tienePos && (
                 <div>
                   <DeliveryMap lat={r.last_lat!} lng={r.last_lng!} />
@@ -253,5 +241,19 @@ export default function DeliveryTrackingAdminPage() {
         })}
       </div>
     </div>
+  );
+}
+
+export default function DeliveryTrackingAdminPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="p-6 text-center text-slate-500">
+          Cargando tracking de repartidores...
+        </div>
+      }
+    >
+      <DeliveryTrackingAdminInner />
+    </Suspense>
   );
 }
