@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 export const metadata = { title: "Choperas | AlFra" };
 
 export default function ChoperasPage() {

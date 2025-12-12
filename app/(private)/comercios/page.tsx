@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 export const metadata = { title: "Comercios | AlFra" };
 
 export default function ComerciosPage() {

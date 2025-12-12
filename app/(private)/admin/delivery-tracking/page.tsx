@@ -1,7 +1,7 @@
+export const dynamic = "force-dynamic";
+
 import { Suspense } from "react";
 import DeliveryTrackingAdminClient from "./DeliveryTrackingAdminClient";
-
-export const dynamic = "force-dynamic";
 
 export default function Page() {
   return (

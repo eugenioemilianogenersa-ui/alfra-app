@@ -1,4 +1,3 @@
-// app/(private)/mis-pedidos/page.tsx
 "use client";
 
 import { useEffect, useRef, useState } from "react";
@@ -60,6 +59,7 @@ export default function MisPedidosPage() {
     };
 
     init();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ---------- REALTIME ----------
@@ -90,6 +90,7 @@ export default function MisPedidosPage() {
     return () => {
       supabase.removeChannel(channel);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ---------- AUTO-REFRESH CADA 5s ----------
