@@ -1,12 +1,12 @@
 {
   "name": "AlFra App",
   "short_name": "AlFra",
-  "description": "Carta, pedidos, puntos y delivery AlFra",
+  "description": "Carta, pedidos, puntos y seguimiento AlFra",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#0b1f14",
   "theme_color": "#0b1f14",
-  "lang": "es-AR",
   "icons": [
     {
       "src": "/icons/icon-192x192.png",
@@ -26,3 +26,4 @@
     }
   ]
 }
+
