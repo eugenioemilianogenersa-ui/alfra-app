@@ -1,7 +1,7 @@
 {
   "name": "AlFra App",
-  "short_name": "AlFra",
-  "description": "Carta, pedidos, puntos y seguimiento AlFra",
+  "short_name": "AlFra App",
+  "description": "Carta, pedidos, puntos y novedades AlFra",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
