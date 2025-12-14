@@ -53,7 +53,6 @@ export default function DeliveryClient() {
 
     init();
 
-    // Realtime: cuando cambia deliveries u orders, refrescamos “mis deliveries”
     const channel = supabase
       .channel("delivery-live")
       .on(
@@ -118,7 +117,6 @@ export default function DeliveryClient() {
 
       setItems(listaFinal);
 
-      // tracking: si hay alguno “enviado” arrancamos gps
       const active = listaFinal.find((d) => d.orders.estado === "enviado");
       if (active && !isTracking) startTracking(active.id);
       else if (!active && isTracking) stopTracking();
@@ -181,7 +179,6 @@ export default function DeliveryClient() {
   };
 
   const handleComenzarViaje = async (orderId: number) => {
-    // optimista
     setItems((prev) =>
       prev.map((item) =>
         item.orders.id === orderId
@@ -190,7 +187,13 @@ export default function DeliveryClient() {
       )
     );
 
-    await supabase.from("orders").update({ estado: "enviado" }).eq("id", orderId);
+    await supabase
+      .from("orders")
+      .update({
+        estado: "enviado",
+        estado_source: "APP_DELIVERY",
+      })
+      .eq("id", orderId);
   };
 
   const handleEntregar = async (orderId: number) => {
@@ -198,7 +201,14 @@ export default function DeliveryClient() {
     if (!confirmEntregar) return;
 
     setItems((prev) => prev.filter((item) => item.orders.id !== orderId));
-    await supabase.from("orders").update({ estado: "entregado" }).eq("id", orderId);
+
+    await supabase
+      .from("orders")
+      .update({
+        estado: "entregado",
+        estado_source: "APP_DELIVERY",
+      })
+      .eq("id", orderId);
 
     stopTracking();
   };
