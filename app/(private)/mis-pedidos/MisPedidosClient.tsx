@@ -27,7 +27,12 @@ type DeliveryLocation = {
   lng: number;
 };
 
-const ACTIVE_STATES = ["pendiente", "en preparación", "listo para entregar", "enviado"];
+const ACTIVE_STATES = [
+  "pendiente",
+  "en preparación",
+  "listo para entregar",
+  "enviado",
+];
 
 export default function MisPedidosClient() {
   const supabase = createClient();
@@ -41,8 +46,91 @@ export default function MisPedidosClient() {
   const [tracking, setTracking] = useState<DeliveryLocation | null>(null);
 
   const userIdRef = useRef<string | null>(null);
+  const pollRef = useRef<number | null>(null);
 
-  // 1) init user + carga inicial
+  // --- helpers ---
+  const loadOrders = async (uid: string) => {
+    const { data, error } = await supabase
+      .from("orders")
+      .select("*")
+      .eq("user_id", uid)
+      .in("estado", ACTIVE_STATES)
+      .order("id", { ascending: false });
+
+    if (error) {
+      console.error("Error cargando orders:", error.message);
+      return;
+    }
+    setOrders((data as Order[]) ?? []);
+  };
+
+  const refreshActiveDelivery = async (uid: string) => {
+    const { data: currentOrder, error: oErr } = await supabase
+      .from("orders")
+      .select("id")
+      .eq("user_id", uid)
+      .eq("estado", "enviado")
+      .order("id", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (oErr) console.error("Error currentOrder:", oErr.message);
+
+    if (!currentOrder?.id) {
+      setActiveDeliveryId(null);
+      setTracking(null);
+      return;
+    }
+
+    const { data: deliveryRow, error: dErr } = await supabase
+      .from("deliveries")
+      .select("id")
+      .eq("order_id", currentOrder.id)
+      .maybeSingle();
+
+    if (dErr) console.error("Error buscando delivery:", dErr.message);
+
+    if (!deliveryRow?.id) {
+      setActiveDeliveryId(null);
+      setTracking(null);
+      return;
+    }
+
+    setActiveDeliveryId(Number(deliveryRow.id));
+  };
+
+  const fetchLastLocation = async (deliveryId: number) => {
+    const { data: loc, error } = await supabase
+      .from("delivery_locations")
+      .select("lat, lng")
+      .eq("delivery_id", deliveryId)
+      .order("id", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.error("Error last location:", error.message);
+      return;
+    }
+
+    if (loc) setTracking({ lat: loc.lat, lng: loc.lng });
+    else setTracking(null);
+  };
+
+  const refreshAll = async () => {
+    const uid = userIdRef.current;
+    if (!uid) return;
+
+    await loadOrders(uid);
+    await refreshActiveDelivery(uid);
+
+    // si ya sabemos el delivery activo, traemos última ubicación
+    if (activeDeliveryId) {
+      await fetchLastLocation(activeDeliveryId);
+    }
+  };
+
+  // 1) init
   useEffect(() => {
     const init = async () => {
       const { data } = await supabase.auth.getUser();
@@ -68,23 +156,26 @@ export default function MisPedidosClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 2) Realtime orders FILTRADO por user_id (clave)
+  // 2) realtime (lo mantenemos)
   useEffect(() => {
     if (!userId) return;
 
     const channel = supabase
-      .channel(`client-orders-${userId}`)
+      .channel(`client-live-${userId}`)
+      // Orders: si entra update/insert, refrescamos
       .on(
         "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "orders",
-          filter: `user_id=eq.${userId}`,
-        },
+        { event: "*", schema: "public", table: "orders" },
         async () => {
-          await loadOrders(userId);
-          await refreshActiveDelivery(userId);
+          await refreshAll();
+        }
+      )
+      // Deliveries: si se asigna repartidor, refrescamos
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "deliveries" },
+        async () => {
+          await refreshAll();
         }
       )
       .subscribe();
@@ -93,105 +184,38 @@ export default function MisPedidosClient() {
       supabase.removeChannel(channel);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId]);
+  }, [userId, activeDeliveryId]);
 
-  // 3) Realtime locations FILTRADO por delivery_id activo (instantáneo)
+  // 3) polling backup (esto es lo que te devuelve “instantáneo” sin refresh)
+  useEffect(() => {
+    if (!userId) return;
+
+    const tick = async () => {
+      // solo si la pestaña está visible (ahorra recursos)
+      if (document.visibilityState !== "visible") return;
+      await refreshAll();
+    };
+
+    // cada 3s (más ágil que 5s)
+    const id = window.setInterval(tick, 3000);
+    pollRef.current = id;
+
+    return () => {
+      if (pollRef.current) window.clearInterval(pollRef.current);
+      pollRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, activeDeliveryId]);
+
+  // 4) cada vez que cambia activeDeliveryId, traemos ubicación inmediata
   useEffect(() => {
     if (!activeDeliveryId) {
       setTracking(null);
       return;
     }
-
-    const channel = supabase
-      .channel(`client-locations-${activeDeliveryId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "delivery_locations",
-          filter: `delivery_id=eq.${activeDeliveryId}`,
-        },
-        (payload) => {
-          const row = payload.new as any;
-          if (row?.lat != null && row?.lng != null) {
-            setTracking({ lat: row.lat, lng: row.lng });
-          }
-        }
-      )
-      .subscribe();
-
-    // al activarse el canal, traemos última ubicación para no esperar al próximo INSERT
-    (async () => {
-      const { data: loc } = await supabase
-        .from("delivery_locations")
-        .select("lat, lng")
-        .eq("delivery_id", activeDeliveryId)
-        .order("id", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (loc) setTracking({ lat: loc.lat, lng: loc.lng });
-    })();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    fetchLastLocation(activeDeliveryId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeDeliveryId]);
-
-  const loadOrders = async (uid: string) => {
-    const { data, error } = await supabase
-      .from("orders")
-      .select("*")
-      .eq("user_id", uid)
-      .in("estado", ACTIVE_STATES)
-      .order("id", { ascending: false });
-
-    if (error) {
-      console.error("Error cargando orders:", error.message);
-      return;
-    }
-
-    setOrders((data as Order[]) ?? []);
-  };
-
-  // determina si hay un pedido "enviado" y resuelve su delivery_id para tracking
-  const refreshActiveDelivery = async (uid: string) => {
-    const { data: currentOrder } = await supabase
-      .from("orders")
-      .select("id")
-      .eq("user_id", uid)
-      .eq("estado", "enviado")
-      .order("id", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (!currentOrder?.id) {
-      setActiveDeliveryId(null);
-      setTracking(null);
-      return;
-    }
-
-    const { data: deliveryRow, error: dErr } = await supabase
-      .from("deliveries")
-      .select("id")
-      .eq("order_id", currentOrder.id)
-      .maybeSingle();
-
-    if (dErr) {
-      console.error("Error buscando delivery:", dErr.message);
-      return;
-    }
-
-    if (!deliveryRow?.id) {
-      setActiveDeliveryId(null);
-      setTracking(null);
-      return;
-    }
-
-    setActiveDeliveryId(Number(deliveryRow.id));
-  };
 
   if (loading) return <div className="p-6 text-center">Cargando mis pedidos...</div>;
 
