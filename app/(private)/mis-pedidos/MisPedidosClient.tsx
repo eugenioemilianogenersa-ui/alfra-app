@@ -27,12 +27,45 @@ type DeliveryLocation = {
   lng: number;
 };
 
-const ACTIVE_STATES = [
-  "pendiente",
-  "en preparación",
-  "listo para entregar",
-  "enviado",
-];
+const ACTIVE_STATES = ["pendiente", "en preparación", "listo para entregar", "enviado"];
+
+function estadoBadgeClass(estado?: string | null) {
+  switch (estado) {
+    case "pendiente":
+      return "bg-slate-200 text-slate-800 border-slate-300";
+    case "en preparación":
+      return "bg-orange-100 text-orange-800 border-orange-200";
+    case "listo para entregar":
+      return "bg-blue-100 text-blue-800 border-blue-200";
+    case "enviado":
+      return "bg-yellow-100 text-yellow-900 border-yellow-300";
+    case "entregado":
+      return "bg-emerald-100 text-emerald-800 border-emerald-200";
+    case "cancelado":
+      return "bg-red-100 text-red-900 border-red-300";
+    default:
+      return "bg-slate-200 text-slate-800 border-slate-300";
+  }
+}
+
+function estadoLeftBorder(estado?: string | null) {
+  switch (estado) {
+    case "pendiente":
+      return "border-l-slate-400";
+    case "en preparación":
+      return "border-l-orange-500";
+    case "listo para entregar":
+      return "border-l-blue-500";
+    case "enviado":
+      return "border-l-yellow-500";
+    case "entregado":
+      return "border-l-emerald-600";
+    case "cancelado":
+      return "border-l-red-600";
+    default:
+      return "border-l-slate-400";
+  }
+}
 
 export default function MisPedidosClient() {
   const supabase = createClient();
@@ -48,7 +81,6 @@ export default function MisPedidosClient() {
   const userIdRef = useRef<string | null>(null);
   const pollRef = useRef<number | null>(null);
 
-  // --- helpers ---
   const loadOrders = async (uid: string) => {
     const { data, error } = await supabase
       .from("orders")
@@ -124,13 +156,11 @@ export default function MisPedidosClient() {
     await loadOrders(uid);
     await refreshActiveDelivery(uid);
 
-    // si ya sabemos el delivery activo, traemos última ubicación
     if (activeDeliveryId) {
       await fetchLastLocation(activeDeliveryId);
     }
   };
 
-  // 1) init
   useEffect(() => {
     const init = async () => {
       const { data } = await supabase.auth.getUser();
@@ -156,28 +186,17 @@ export default function MisPedidosClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 2) realtime (lo mantenemos)
   useEffect(() => {
     if (!userId) return;
 
     const channel = supabase
       .channel(`client-live-${userId}`)
-      // Orders: si entra update/insert, refrescamos
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "orders" },
-        async () => {
-          await refreshAll();
-        }
-      )
-      // Deliveries: si se asigna repartidor, refrescamos
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "deliveries" },
-        async () => {
-          await refreshAll();
-        }
-      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, async () => {
+        await refreshAll();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "deliveries" }, async () => {
+        await refreshAll();
+      })
       .subscribe();
 
     return () => {
@@ -186,17 +205,14 @@ export default function MisPedidosClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, activeDeliveryId]);
 
-  // 3) polling backup (esto es lo que te devuelve “instantáneo” sin refresh)
   useEffect(() => {
     if (!userId) return;
 
     const tick = async () => {
-      // solo si la pestaña está visible (ahorra recursos)
       if (document.visibilityState !== "visible") return;
       await refreshAll();
     };
 
-    // cada 3s (más ágil que 5s)
     const id = window.setInterval(tick, 3000);
     pollRef.current = id;
 
@@ -207,7 +223,6 @@ export default function MisPedidosClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, activeDeliveryId]);
 
-  // 4) cada vez que cambia activeDeliveryId, traemos ubicación inmediata
   useEffect(() => {
     if (!activeDeliveryId) {
       setTracking(null);
@@ -230,7 +245,12 @@ export default function MisPedidosClient() {
       )}
 
       {orders.map((o) => (
-        <div key={o.id} className="bg-white border rounded-xl shadow-sm overflow-hidden">
+        <div
+          key={o.id}
+          className={`bg-white border rounded-xl shadow-sm overflow-hidden border-l-4 ${estadoLeftBorder(
+            o.estado
+          )}`}
+        >
           <div className="p-4 border-b bg-slate-50 flex justify-between items-center">
             <div>
               <h2 className="font-bold text-lg text-slate-800">Pedido #{o.id}</h2>
@@ -240,16 +260,9 @@ export default function MisPedidosClient() {
             </div>
 
             <span
-              className={`px-3 py-1 rounded-full text-xs font-bold border uppercase tracking-wide
-                ${
-                  o.estado === "entregado"
-                    ? "bg-green-100 text-green-700 border-green-200"
-                    : o.estado === "enviado"
-                    ? "bg-blue-600 text-white border-blue-600 animate-pulse"
-                    : o.estado === "cancelado"
-                    ? "bg-red-100 text-red-700 border-red-200"
-                    : "bg-yellow-100 text-yellow-700 border-yellow-200"
-                }`}
+              className={`px-3 py-1 rounded-full text-xs font-extrabold border uppercase tracking-wide ${estadoBadgeClass(
+                o.estado
+              )}`}
             >
               {o.estado}
             </span>
@@ -263,7 +276,7 @@ export default function MisPedidosClient() {
 
           {o.estado === "enviado" && tracking && (
             <div className="border-t">
-              <div className="bg-blue-50 p-2 text-center text-xs font-bold text-blue-700 flex items-center justify-center gap-2">
+              <div className="bg-yellow-100 p-2 text-center text-xs font-extrabold text-yellow-900 flex items-center justify-center gap-2 border-b border-yellow-200">
                 🛵 TU PEDIDO ESTÁ EN CAMINO
               </div>
               <DeliveryMap lat={tracking.lat} lng={tracking.lng} />

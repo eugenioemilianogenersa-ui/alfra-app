@@ -17,12 +17,63 @@ type DeliveryItem = {
   orders: Order;
 };
 
-const ACTIVE_STATES = [
-  "pendiente",
-  "en preparación",
-  "listo para entregar",
-  "enviado",
-];
+const ACTIVE_STATES = ["pendiente", "en preparación", "listo para entregar", "enviado"];
+
+function estadoBadgeClass(estado?: string | null) {
+  switch (estado) {
+    case "pendiente":
+      return "bg-slate-200 text-slate-800 border-slate-300";
+    case "en preparación":
+      return "bg-orange-100 text-orange-800 border-orange-200";
+    case "listo para entregar":
+      return "bg-blue-100 text-blue-800 border-blue-200";
+    case "enviado":
+      return "bg-yellow-100 text-yellow-900 border-yellow-300";
+    case "entregado":
+      return "bg-emerald-100 text-emerald-800 border-emerald-200";
+    case "cancelado":
+      return "bg-red-100 text-red-900 border-red-300";
+    default:
+      return "bg-slate-200 text-slate-800 border-slate-300";
+  }
+}
+
+function estadoHeaderClass(estado?: string | null) {
+  // banda superior (más “Fudo”)
+  switch (estado) {
+    case "pendiente":
+      return "bg-slate-800";
+    case "en preparación":
+      return "bg-orange-600";
+    case "listo para entregar":
+      return "bg-blue-700";
+    case "enviado":
+      return "bg-yellow-600";
+    case "entregado":
+      return "bg-emerald-700";
+    case "cancelado":
+      return "bg-red-700";
+    default:
+      return "bg-slate-800";
+  }
+}
+
+function estadoRingClass(estado?: string | null) {
+  switch (estado) {
+    case "en preparación":
+      return "ring-2 ring-orange-400";
+    case "listo para entregar":
+      return "ring-2 ring-blue-400";
+    case "enviado":
+      return "ring-2 ring-yellow-400";
+    case "entregado":
+      return "ring-2 ring-emerald-400";
+    case "cancelado":
+      return "ring-2 ring-red-400";
+    default:
+      return "";
+  }
+}
 
 export default function DeliveryClient() {
   const supabase = createClient();
@@ -55,13 +106,9 @@ export default function DeliveryClient() {
 
     const channel = supabase
       .channel("delivery-live")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "deliveries" },
-        () => {
-          if (myUserId) fetchMyDeliveries(myUserId);
-        }
-      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "deliveries" }, () => {
+        if (myUserId) fetchMyDeliveries(myUserId);
+      })
       .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => {
         if (myUserId) fetchMyDeliveries(myUserId);
       })
@@ -103,9 +150,7 @@ export default function DeliveryClient() {
 
       const listaFinal: DeliveryItem[] = [];
       misAsignaciones.forEach((asignacion) => {
-        const ordenEncontrada = ordenesDetalle?.find(
-          (o) => o.id === asignacion.order_id
-        );
+        const ordenEncontrada = ordenesDetalle?.find((o) => o.id === asignacion.order_id);
         if (ordenEncontrada) {
           listaFinal.push({
             id: asignacion.id,
@@ -158,8 +203,7 @@ export default function DeliveryClient() {
       (err) => {
         console.error("Error GPS:", err);
         const msg =
-          (err as GeolocationPositionError).message ||
-          "Problema con GPS (¿sin HTTPS?).";
+          (err as GeolocationPositionError).message || "Problema con GPS (¿sin HTTPS?).";
         setGpsError(`Problema con GPS: ${msg}`);
       },
       options
@@ -181,9 +225,7 @@ export default function DeliveryClient() {
   const handleComenzarViaje = async (orderId: number) => {
     setItems((prev) =>
       prev.map((item) =>
-        item.orders.id === orderId
-          ? { ...item, orders: { ...item.orders, estado: "enviado" } }
-          : item
+        item.orders.id === orderId ? { ...item, orders: { ...item.orders, estado: "enviado" } } : item
       )
     );
 
@@ -220,7 +262,7 @@ export default function DeliveryClient() {
       <div className="flex justify-between items-center">
         <h1 className="text-xl font-bold text-slate-800">🛵 Panel Repartidor</h1>
         {isTracking && (
-          <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded animate-pulse border border-green-200">
+          <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-1 rounded border border-emerald-200 animate-pulse">
             ● GPS ACTIVO
           </span>
         )}
@@ -240,21 +282,21 @@ export default function DeliveryClient() {
 
       {items.map((item) => {
         const order = item.orders;
-        const isEnviado = order.estado === "enviado";
 
         return (
           <div
             key={item.id}
-            className={`border rounded-xl shadow-sm overflow-hidden bg-white ${
-              isEnviado ? "ring-2 ring-blue-500" : ""
-            }`}
+            className={`border rounded-xl shadow-sm overflow-hidden bg-white ${estadoRingClass(order.estado)}`}
           >
-            <div className="bg-slate-800 text-white p-4 flex justify-between items-center">
+            <div className={`${estadoHeaderClass(order.estado)} text-white p-4 flex justify-between items-center`}>
               <span className="font-bold text-lg">#{order.id}</span>
+
               <span
-                className={`text-xs px-2 py-1 rounded uppercase font-bold ${
-                  isEnviado ? "bg-blue-500 text-white" : "bg-slate-600 text-slate-200"
-                }`}
+                className={`text-[11px] px-2 py-1 rounded-full uppercase font-bold border ${estadoBadgeClass(
+                  order.estado
+                )}`}
+                // badge “claro” arriba de banda “fuerte”
+                style={{ backgroundColor: "rgba(255,255,255,0.9)" }}
               >
                 {order.estado}
               </span>
@@ -263,6 +305,7 @@ export default function DeliveryClient() {
             <div className="p-4 space-y-2">
               <p className="text-lg font-bold text-slate-800">{order.cliente_nombre}</p>
               <p className="text-sm text-slate-600">📍 {order.direccion_entrega}</p>
+
               <div className="pt-2 flex justify-between items-center">
                 <p className="text-2xl text-emerald-600 font-bold">${order.monto}</p>
                 <a
@@ -271,7 +314,7 @@ export default function DeliveryClient() {
                   )}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-blue-600 text-xs underline"
+                  className="text-blue-700 text-xs underline"
                 >
                   Abrir Mapa
                 </a>
@@ -279,18 +322,19 @@ export default function DeliveryClient() {
             </div>
 
             <div className="p-3 bg-slate-50 border-t">
-              {!isEnviado && (
+              {order.estado !== "enviado" && (
                 <button
                   onClick={() => handleComenzarViaje(order.id)}
-                  className="w-full bg-blue-600 active:bg-blue-800 text-white font-bold py-3 rounded-lg shadow transition-transform active:scale-95"
+                  className="w-full bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700 text-black font-extrabold py-3 rounded-lg shadow transition-transform active:scale-95"
                 >
                   🚀 SALIR
                 </button>
               )}
-              {isEnviado && (
+
+              {order.estado === "enviado" && (
                 <button
                   onClick={() => handleEntregar(order.id)}
-                  className="w-full bg-emerald-600 active:bg-emerald-800 text-white font-bold py-3 rounded-lg shadow transition-transform active:scale-95"
+                  className="w-full bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-extrabold py-3 rounded-lg shadow transition-transform active:scale-95"
                 >
                   ✅ ENTREGAR
                 </button>
