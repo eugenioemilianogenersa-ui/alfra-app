@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabaseClient";
 
-// Tipos
 type Order = {
   id: number;
   cliente_nombre: string | null;
@@ -45,20 +44,19 @@ export default function AdminPedidosClient() {
   const [manualAddress, setManualAddress] = useState("");
   const [manualMonto, setManualMonto] = useState("");
 
-  // refs para control de sync y backoff por 429
   const isSyncingRef = useRef(false);
   const last429Ref = useRef<number | null>(null);
 
-  const getTodayStartIso = () => {
+  const getTodayStartIsoUtc = () => {
     const now = new Date();
-    const y = now.getFullYear();
-    const m = String(now.getMonth() + 1).padStart(2, "0");
-    const d = String(now.getDate()).padStart(2, "0");
+    const y = now.getUTCFullYear();
+    const m = String(now.getUTCMonth() + 1).padStart(2, "0");
+    const d = String(now.getUTCDate()).padStart(2, "0");
     return `${y}-${m}-${d}T00:00:00Z`;
   };
 
   const cargarPedidos = async () => {
-    const todayStartIso = getTodayStartIso();
+    const todayStartIso = getTodayStartIsoUtc();
 
     const { data: ordersData, error: ordersError } = await supabase
       .from("orders")
@@ -100,10 +98,7 @@ export default function AdminPedidosClient() {
         .in("id", userIds);
 
       if (profilesError) {
-        console.error(
-          "Error cargando perfiles repartidores:",
-          profilesError.message
-        );
+        console.error("Error cargando perfiles repartidores:", profilesError.message);
       }
 
       const nombrePorUserId: Record<string, string> = {};
@@ -114,9 +109,7 @@ export default function AdminPedidosClient() {
 
       deliveriesData.forEach((d: any) => {
         const nombre = nombrePorUserId[d.delivery_user_id] || null;
-        if (nombre) {
-          repartidorPorOrderId[d.order_id] = nombre;
-        }
+        repartidorPorOrderId[d.order_id] = nombre;
       });
     }
 
@@ -130,14 +123,9 @@ export default function AdminPedidosClient() {
 
   const syncFudo = async (opts?: { forced?: boolean }) => {
     const now = Date.now();
-
     if (isSyncingRef.current) return;
 
-    if (
-      !opts?.forced &&
-      last429Ref.current &&
-      now - last429Ref.current < 60_000
-    ) {
+    if (!opts?.forced && last429Ref.current && now - last429Ref.current < 60_000) {
       console.warn("[FUDO SYNC] Pausado temporalmente por 429 reciente");
       return;
     }
@@ -146,16 +134,13 @@ export default function AdminPedidosClient() {
       isSyncingRef.current = true;
       setSyncingFudo(true);
 
-      console.log("🔄 Iniciando Sync Fudo -> Supabase...");
       const res = await fetch("/api/fudo/sync");
 
       if (!res.ok) {
         console.error("[FUDO SYNC] Error HTTP en /api/fudo/sync:", res.status);
         if (res.status === 429) {
           last429Ref.current = now;
-          console.error(
-            "[FUDO SYNC] Recibido 429, pausamos auto-sync por 60s"
-          );
+          console.error("[FUDO SYNC] 429 → pausamos auto-sync 60s");
         }
       } else {
         last429Ref.current = null;
@@ -191,44 +176,45 @@ export default function AdminPedidosClient() {
     };
     init();
 
-    const supabaseChannel = supabase
-      .channel("admin-dashboard-live")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "orders" },
-        (payload) => {
-          if (payload.eventType === "INSERT") {
-            const nuevo = payload.new as Order;
-            const todayStartIso = getTodayStartIso();
-            if (nuevo.creado_en >= todayStartIso) {
-              setPedidos((prev) => [nuevo, ...prev]);
-            }
-          } else if (payload.eventType === "UPDATE") {
-            setPedidos((prev) =>
-              prev.map((p) =>
-                p.id === (payload.new as any).id
-                  ? { ...p, ...(payload.new as any) }
-                  : p
-              )
-            );
+    const channel = supabase
+      .channel("admin-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, (payload) => {
+        if (payload.eventType === "INSERT") {
+          const nuevo = payload.new as Order;
+          const todayStartIso = getTodayStartIsoUtc();
+          if (nuevo.creado_en >= todayStartIso) {
+            // preserve repartidor_nombre (aún no lo sabemos acá)
+            setPedidos((prev) => [nuevo, ...prev]);
           }
+        } else if (payload.eventType === "UPDATE") {
+          const updated = payload.new as any;
+          setPedidos((prev) =>
+            prev.map((p) =>
+              p.id === updated.id
+                ? {
+                    ...p,
+                    ...updated,
+                    // NO borrar lo que solo existe en UI
+                    repartidor_nombre: p.repartidor_nombre ?? null,
+                  }
+                : p
+            )
+          );
         }
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "deliveries" },
-        () => {
-          cargarPedidos();
-        }
-      )
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "deliveries" }, () => {
+        // seguro (luego optimizamos)
+        cargarPedidos();
+      })
       .subscribe();
 
+    // auto-sync Fudo SOLO como backup y SOLO si la pestaña está visible
     const intervalId = setInterval(() => {
-      syncFudo();
-    }, 15_000);
+      if (document.visibilityState === "visible") syncFudo();
+    }, 25_000);
 
     return () => {
-      supabase.removeChannel(supabaseChannel);
+      supabase.removeChannel(channel);
       clearInterval(intervalId);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -296,22 +282,21 @@ export default function AdminPedidosClient() {
   };
 
   const cambiarEstado = async (id: number, nuevoEstado: string) => {
+    // optimista
     setPedidos((prev) =>
       prev.map((p) => (p.id === id ? { ...p, estado: nuevoEstado } : p))
     );
+
     await supabase.from("orders").update({ estado: nuevoEstado }).eq("id", id);
   };
 
-  if (loading)
-    return <div className="p-6 text-center">Conectando con la base...</div>;
+  if (loading) return <div className="p-6 text-center">Conectando con la base...</div>;
 
   return (
     <div className="p-6 space-y-8 pb-32 max-w-7xl mx-auto">
       <div className="flex justify-between items-center">
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-bold text-slate-800">
-            Gestión de Pedidos
-          </h1>
+          <h1 className="text-2xl font-bold text-slate-800">Gestión de Pedidos</h1>
           <button
             onClick={() => syncFudo({ forced: true })}
             className="text-xs px-3 py-1 rounded-full border bg-white hover:bg-amber-50 flex items-center gap-2"
@@ -348,6 +333,7 @@ export default function AdminPedidosClient() {
               ))}
             </select>
           </div>
+
           <input
             value={manualName}
             onChange={(e) => setManualName(e.target.value)}
@@ -387,35 +373,31 @@ export default function AdminPedidosClient() {
             <div
               key={p.id}
               className={`bg-white border rounded-xl p-4 shadow-sm flex flex-col lg:flex-row justify-between items-center gap-4 transition-all duration-500
-            ${p.estado === "enviado" ? "border-l-4 border-l-blue-500" : ""}
-            ${p.estado === "entregado" ? "opacity-70 bg-slate-50" : ""}
-          `}
+                ${p.estado === "enviado" ? "border-l-4 border-l-blue-500" : ""}
+                ${p.estado === "entregado" ? "opacity-70 bg-slate-50" : ""}
+              `}
             >
               <div className="flex-1 w-full">
                 <div className="flex items-center gap-2 mb-1">
                   <span className="bg-slate-800 text-white px-2 py-0.5 rounded text-xs font-mono">
                     #{p.id}
                   </span>
-                  <span className="font-bold text-slate-800">
-                    {p.cliente_nombre}
-                  </span>
+                  <span className="font-bold text-slate-800">{p.cliente_nombre}</span>
                 </div>
 
                 <div className="flex flex-col sm:flex-row sm:gap-4 text-sm text-slate-600">
                   <p>📍 {p.direccion_entrega}</p>
 
                   <div className="flex flex-col items-start sm:items-end gap-1">
-                    <p className="font-semibold text-emerald-600">
-                      💰 ${p.monto}
-                    </p>
+                    <p className="font-semibold text-emerald-600">💰 ${p.monto}</p>
 
                     <span
                       className={`inline-flex items-center px-3 py-0.5 rounded-full text-[11px] font-semibold
-                      ${
-                        tieneRepartidor
-                          ? "bg-blue-100 text-blue-700 border border-blue-200"
-                          : "bg-slate-200 text-slate-600 border border-slate-300"
-                      }`}
+                        ${
+                          tieneRepartidor
+                            ? "bg-blue-100 text-blue-700 border border-blue-200"
+                            : "bg-slate-200 text-slate-600 border border-slate-300"
+                        }`}
                     >
                       🛵 Repartidor: {p.repartidor_nombre || "Sin asignar"}
                     </span>
@@ -428,17 +410,17 @@ export default function AdminPedidosClient() {
                   value={p.estado || "pendiente"}
                   onChange={(e) => cambiarEstado(p.id, e.target.value)}
                   className={`p-2 rounded text-xs font-bold border cursor-pointer uppercase tracking-wide
-                        ${
-                          p.estado === "enviado"
-                            ? "bg-blue-100 text-blue-700 border-blue-200"
-                            : p.estado === "entregado"
-                            ? "bg-green-100 text-green-700 border-green-200"
-                            : p.estado === "cancelado"
-                            ? "bg-red-100 text-red-700 border-red-200"
-                            : p.estado === "listo para entregar"
-                            ? "bg-amber-100 text-amber-700 border-amber-200"
-                            : "bg-yellow-100 text-yellow-700 border-yellow-200"
-                        }`}
+                    ${
+                      p.estado === "enviado"
+                        ? "bg-blue-100 text-blue-700 border-blue-200"
+                        : p.estado === "entregado"
+                        ? "bg-green-100 text-green-700 border-green-200"
+                        : p.estado === "cancelado"
+                        ? "bg-red-100 text-red-700 border-red-200"
+                        : p.estado === "listo para entregar"
+                        ? "bg-amber-100 text-amber-700 border-amber-200"
+                        : "bg-yellow-100 text-yellow-700 border-yellow-200"
+                    }`}
                 >
                   {ESTADOS.map((st) => (
                     <option key={st} value={st}>

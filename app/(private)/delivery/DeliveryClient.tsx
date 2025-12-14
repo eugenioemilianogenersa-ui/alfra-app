@@ -17,6 +17,13 @@ type DeliveryItem = {
   orders: Order;
 };
 
+const ACTIVE_STATES = [
+  "pendiente",
+  "en preparación",
+  "listo para entregar",
+  "enviado",
+];
+
 export default function DeliveryClient() {
   const supabase = createClient();
   const [items, setItems] = useState<DeliveryItem[]>([]);
@@ -29,23 +36,33 @@ export default function DeliveryClient() {
   const deliveryIdActiveRef = useRef<number | null>(null);
 
   useEffect(() => {
-    const getUser = async () => {
+    const init = async () => {
       const { data } = await supabase.auth.getUser();
-      if (data.user) {
-        setMyUserId(data.user.id);
-        fetchMyDeliveries(data.user.id);
-      } else {
+      const uid = data.user?.id ?? null;
+
+      setMyUserId(uid);
+
+      if (!uid) {
         setLoading(false);
+        return;
       }
+
+      await fetchMyDeliveries(uid);
+      setLoading(false);
     };
 
-    getUser();
+    init();
 
+    // Realtime: cuando cambia deliveries u orders, refrescamos “mis deliveries”
     const channel = supabase
-      .channel("delivery-updates")
-      .on("postgres_changes", { event: "*", schema: "public", table: "deliveries" }, () => {
-        if (myUserId) fetchMyDeliveries(myUserId);
-      })
+      .channel("delivery-live")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "deliveries" },
+        () => {
+          if (myUserId) fetchMyDeliveries(myUserId);
+        }
+      )
       .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => {
         if (myUserId) fetchMyDeliveries(myUserId);
       })
@@ -58,16 +75,6 @@ export default function DeliveryClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [myUserId]);
 
-  useEffect(() => {
-    if (!myUserId) return;
-
-    const intervalId = setInterval(() => {
-      fetchMyDeliveries(myUserId);
-    }, 5_000);
-
-    return () => clearInterval(intervalId);
-  }, [myUserId]);
-
   const fetchMyDeliveries = async (uid: string) => {
     try {
       const { data: misAsignaciones, error: asignError } = await supabase
@@ -75,11 +82,12 @@ export default function DeliveryClient() {
         .select("id, order_id, delivery_user_id")
         .eq("delivery_user_id", uid);
 
-      if (asignError) console.error("Error deliveres:", asignError);
+      if (asignError) console.error("Error deliveries:", asignError);
 
       if (!misAsignaciones || misAsignaciones.length === 0) {
         setItems([]);
         setLoading(false);
+        stopTracking();
         return;
       }
 
@@ -89,14 +97,16 @@ export default function DeliveryClient() {
         .from("orders")
         .select("*")
         .in("id", orderIds)
-        .in("estado", ["pendiente", "en preparación", "listo para entregar", "en camino", "enviado", "asignado"])
+        .in("estado", ACTIVE_STATES)
         .order("id", { ascending: false });
 
       if (ordError) console.error("Error orders:", ordError);
 
       const listaFinal: DeliveryItem[] = [];
       misAsignaciones.forEach((asignacion) => {
-        const ordenEncontrada = ordenesDetalle?.find((o) => o.id === asignacion.order_id);
+        const ordenEncontrada = ordenesDetalle?.find(
+          (o) => o.id === asignacion.order_id
+        );
         if (ordenEncontrada) {
           listaFinal.push({
             id: asignacion.id,
@@ -108,11 +118,12 @@ export default function DeliveryClient() {
 
       setItems(listaFinal);
 
-      const active = listaFinal.find((d) => d.orders.estado === "en camino" || d.orders.estado === "enviado");
+      // tracking: si hay alguno “enviado” arrancamos gps
+      const active = listaFinal.find((d) => d.orders.estado === "enviado");
       if (active && !isTracking) startTracking(active.id);
       else if (!active && isTracking) stopTracking();
     } catch (error: any) {
-      console.error("Error fetch:", error);
+      console.error("Error fetchMyDeliveries:", error);
     } finally {
       setLoading(false);
     }
@@ -148,12 +159,10 @@ export default function DeliveryClient() {
       },
       (err) => {
         console.error("Error GPS:", err);
-        if ((err as GeolocationPositionError).code === 3) {
-          setGpsError("GPS lento. Intentando modo bajo consumo...");
-        } else {
-          const msg = (err as GeolocationPositionError).message || "Problema con GPS (¿origen no seguro / sin HTTPS?).";
-          setGpsError(`Problema con GPS: ${msg}`);
-        }
+        const msg =
+          (err as GeolocationPositionError).message ||
+          "Problema con GPS (¿sin HTTPS?).";
+        setGpsError(`Problema con GPS: ${msg}`);
       },
       options
     );
@@ -172,8 +181,13 @@ export default function DeliveryClient() {
   };
 
   const handleComenzarViaje = async (orderId: number) => {
+    // optimista
     setItems((prev) =>
-      prev.map((item) => (item.orders.id === orderId ? { ...item, orders: { ...item.orders, estado: "enviado" } } : item))
+      prev.map((item) =>
+        item.orders.id === orderId
+          ? { ...item, orders: { ...item.orders, estado: "enviado" } }
+          : item
+      )
     );
 
     await supabase.from("orders").update({ estado: "enviado" }).eq("id", orderId);
@@ -184,15 +198,12 @@ export default function DeliveryClient() {
     if (!confirmEntregar) return;
 
     setItems((prev) => prev.filter((item) => item.orders.id !== orderId));
-
     await supabase.from("orders").update({ estado: "entregado" }).eq("id", orderId);
 
     stopTracking();
   };
 
-  if (loading) {
-    return <div className="p-6 text-center text-slate-500">Cargando...</div>;
-  }
+  if (loading) return <div className="p-6 text-center text-slate-500">Cargando...</div>;
 
   return (
     <div className="p-4 pb-24 space-y-4 bg-slate-50 min-h-screen">
@@ -206,10 +217,12 @@ export default function DeliveryClient() {
       </div>
 
       {gpsError && (
-        <div className="bg-red-100 border border-red-300 text-red-700 p-3 rounded text-sm">⚠️ {gpsError}</div>
+        <div className="bg-red-100 border border-red-300 text-red-700 p-3 rounded text-sm">
+          ⚠️ {gpsError}
+        </div>
       )}
 
-      {items.length === 0 && !loading && (
+      {items.length === 0 && (
         <div className="text-center py-10 text-slate-400 border-2 border-dashed rounded-xl bg-white">
           <p>😴 Sin pedidos pendientes.</p>
         </div>
@@ -217,15 +230,20 @@ export default function DeliveryClient() {
 
       {items.map((item) => {
         const order = item.orders;
-        const isEnCamino = order.estado === "en camino" || order.estado === "enviado";
+        const isEnviado = order.estado === "enviado";
 
         return (
-          <div key={item.id} className={`border rounded-xl shadow-sm overflow-hidden bg-white ${isEnCamino ? "ring-2 ring-blue-500" : ""}`}>
+          <div
+            key={item.id}
+            className={`border rounded-xl shadow-sm overflow-hidden bg-white ${
+              isEnviado ? "ring-2 ring-blue-500" : ""
+            }`}
+          >
             <div className="bg-slate-800 text-white p-4 flex justify-between items-center">
               <span className="font-bold text-lg">#{order.id}</span>
               <span
                 className={`text-xs px-2 py-1 rounded uppercase font-bold ${
-                  isEnCamino ? "bg-blue-500 text-white" : "bg-slate-600 text-slate-200"
+                  isEnviado ? "bg-blue-500 text-white" : "bg-slate-600 text-slate-200"
                 }`}
               >
                 {order.estado}
@@ -238,7 +256,9 @@ export default function DeliveryClient() {
               <div className="pt-2 flex justify-between items-center">
                 <p className="text-2xl text-emerald-600 font-bold">${order.monto}</p>
                 <a
-                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent((order.direccion_entrega || "") + " Coronel Moldes Cordoba")}`}
+                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                    (order.direccion_entrega || "") + " Coronel Moldes Cordoba"
+                  )}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-blue-600 text-xs underline"
@@ -249,7 +269,7 @@ export default function DeliveryClient() {
             </div>
 
             <div className="p-3 bg-slate-50 border-t">
-              {!isEnCamino && (
+              {!isEnviado && (
                 <button
                   onClick={() => handleComenzarViaje(order.id)}
                   className="w-full bg-blue-600 active:bg-blue-800 text-white font-bold py-3 rounded-lg shadow transition-transform active:scale-95"
@@ -257,7 +277,7 @@ export default function DeliveryClient() {
                   🚀 SALIR
                 </button>
               )}
-              {isEnCamino && (
+              {isEnviado && (
                 <button
                   onClick={() => handleEntregar(order.id)}
                   className="w-full bg-emerald-600 active:bg-emerald-800 text-white font-bold py-3 rounded-lg shadow transition-transform active:scale-95"

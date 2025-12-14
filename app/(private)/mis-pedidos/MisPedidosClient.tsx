@@ -27,11 +27,17 @@ type DeliveryLocation = {
   lng: number;
 };
 
+const ACTIVE_STATES = [
+  "pendiente",
+  "en preparación",
+  "listo para entregar",
+  "enviado",
+];
+
 export default function MisPedidosClient() {
   const supabase = createClient();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
-  const [userId, setUserId] = useState<string | null>(null);
   const [tracking, setTracking] = useState<DeliveryLocation | null>(null);
 
   const userIdRef = useRef<string | null>(null);
@@ -39,18 +45,16 @@ export default function MisPedidosClient() {
   useEffect(() => {
     const init = async () => {
       const { data } = await supabase.auth.getUser();
-      const uid = data.user?.id || null;
+      const uid = data.user?.id ?? null;
+
+      userIdRef.current = uid;
 
       if (!uid) {
-        setUserId(null);
-        userIdRef.current = null;
         setOrders([]);
+        setTracking(null);
         setLoading(false);
         return;
       }
-
-      setUserId(uid);
-      userIdRef.current = uid;
 
       await loadOrders(uid);
       await trackDelivery(uid);
@@ -63,18 +67,22 @@ export default function MisPedidosClient() {
 
   useEffect(() => {
     const channel = supabase
-      .channel("client-orders-realtime")
+      .channel("client-live")
       .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, async () => {
         const uid = userIdRef.current;
         if (!uid) return;
         await loadOrders(uid);
         await trackDelivery(uid);
       })
-      .on("postgres_changes", { event: "*", schema: "public", table: "delivery_locations" }, async () => {
-        const uid = userIdRef.current;
-        if (!uid) return;
-        await trackDelivery(uid);
-      })
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "delivery_locations" },
+        async () => {
+          const uid = userIdRef.current;
+          if (!uid) return;
+          await trackDelivery(uid);
+        }
+      )
       .subscribe();
 
     return () => {
@@ -83,27 +91,12 @@ export default function MisPedidosClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    if (!userId) return;
-
-    const intervalId = setInterval(() => {
-      const uid = userIdRef.current;
-      if (!uid) return;
-      loadOrders(uid);
-      trackDelivery(uid);
-    }, 5_000);
-
-    return () => clearInterval(intervalId);
-  }, [userId]);
-
   const loadOrders = async (uid: string) => {
-    const activeStates = ["pendiente", "en preparación", "listo para entregar", "asignado", "en camino", "enviado"];
-
     const { data, error } = await supabase
       .from("orders")
       .select("*")
       .eq("user_id", uid)
-      .in("estado", activeStates)
+      .in("estado", ACTIVE_STATES)
       .order("id", { ascending: false });
 
     if (error) {
@@ -111,7 +104,7 @@ export default function MisPedidosClient() {
       return;
     }
 
-    if (data) setOrders(data as Order[]);
+    setOrders((data as Order[]) ?? []);
   };
 
   const trackDelivery = async (uid: string) => {
@@ -119,7 +112,7 @@ export default function MisPedidosClient() {
       .from("orders")
       .select("id")
       .eq("user_id", uid)
-      .in("estado", ["en camino", "enviado"])
+      .eq("estado", "enviado")
       .order("id", { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -135,7 +128,10 @@ export default function MisPedidosClient() {
       .eq("order_id", currentOrder.id)
       .maybeSingle();
 
-    if (!deliveryRow) return;
+    if (!deliveryRow) {
+      setTracking(null);
+      return;
+    }
 
     const { data: loc } = await supabase
       .from("delivery_locations")
@@ -146,6 +142,7 @@ export default function MisPedidosClient() {
       .maybeSingle();
 
     if (loc) setTracking({ lat: loc.lat, lng: loc.lng });
+    else setTracking(null);
   };
 
   if (loading) return <div className="p-6 text-center">Cargando mis pedidos...</div>;
@@ -165,7 +162,9 @@ export default function MisPedidosClient() {
           <div className="p-4 border-b bg-slate-50 flex justify-between items-center">
             <div>
               <h2 className="font-bold text-lg text-slate-800">Pedido #{o.id}</h2>
-              <p className="text-xs text-slate-400">{new Date(o.creado_en).toLocaleDateString("es-AR")}</p>
+              <p className="text-xs text-slate-400">
+                {new Date(o.creado_en).toLocaleDateString("es-AR")}
+              </p>
             </div>
 
             <span
@@ -173,7 +172,7 @@ export default function MisPedidosClient() {
                 ${
                   o.estado === "entregado"
                     ? "bg-green-100 text-green-700 border-green-200"
-                    : o.estado === "en camino" || o.estado === "enviado"
+                    : o.estado === "enviado"
                     ? "bg-blue-600 text-white border-blue-600 animate-pulse"
                     : o.estado === "cancelado"
                     ? "bg-red-100 text-red-700 border-red-200"
@@ -190,7 +189,7 @@ export default function MisPedidosClient() {
             <p className="font-bold text-emerald-600">💰 Total: ${o.monto}</p>
           </div>
 
-          {(o.estado === "en camino" || o.estado === "enviado") && tracking && (
+          {o.estado === "enviado" && tracking && (
             <div className="border-t">
               <div className="bg-blue-50 p-2 text-center text-xs font-bold text-blue-700 flex items-center justify-center gap-2">
                 🛵 TU PEDIDO ESTÁ EN CAMINO
