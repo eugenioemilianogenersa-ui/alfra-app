@@ -27,37 +27,40 @@ type DeliveryLocation = {
   lng: number;
 };
 
-const ACTIVE_STATES = [
-  "pendiente",
-  "en preparación",
-  "listo para entregar",
-  "enviado",
-];
+const ACTIVE_STATES = ["pendiente", "en preparación", "listo para entregar", "enviado"];
 
 export default function MisPedidosClient() {
   const supabase = createClient();
+
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const [userId, setUserId] = useState<string | null>(null);
+
+  const [activeDeliveryId, setActiveDeliveryId] = useState<number | null>(null);
   const [tracking, setTracking] = useState<DeliveryLocation | null>(null);
 
   const userIdRef = useRef<string | null>(null);
 
+  // 1) init user + carga inicial
   useEffect(() => {
     const init = async () => {
       const { data } = await supabase.auth.getUser();
       const uid = data.user?.id ?? null;
 
+      setUserId(uid);
       userIdRef.current = uid;
 
       if (!uid) {
         setOrders([]);
         setTracking(null);
+        setActiveDeliveryId(null);
         setLoading(false);
         return;
       }
 
       await loadOrders(uid);
-      await trackDelivery(uid);
+      await refreshActiveDelivery(uid);
       setLoading(false);
     };
 
@@ -65,22 +68,23 @@ export default function MisPedidosClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // 2) Realtime orders FILTRADO por user_id (clave)
   useEffect(() => {
+    if (!userId) return;
+
     const channel = supabase
-      .channel("client-live")
-      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, async () => {
-        const uid = userIdRef.current;
-        if (!uid) return;
-        await loadOrders(uid);
-        await trackDelivery(uid);
-      })
+      .channel(`client-orders-${userId}`)
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "delivery_locations" },
+        {
+          event: "*",
+          schema: "public",
+          table: "orders",
+          filter: `user_id=eq.${userId}`,
+        },
         async () => {
-          const uid = userIdRef.current;
-          if (!uid) return;
-          await trackDelivery(uid);
+          await loadOrders(userId);
+          await refreshActiveDelivery(userId);
         }
       )
       .subscribe();
@@ -89,7 +93,52 @@ export default function MisPedidosClient() {
       supabase.removeChannel(channel);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [userId]);
+
+  // 3) Realtime locations FILTRADO por delivery_id activo (instantáneo)
+  useEffect(() => {
+    if (!activeDeliveryId) {
+      setTracking(null);
+      return;
+    }
+
+    const channel = supabase
+      .channel(`client-locations-${activeDeliveryId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "delivery_locations",
+          filter: `delivery_id=eq.${activeDeliveryId}`,
+        },
+        (payload) => {
+          const row = payload.new as any;
+          if (row?.lat != null && row?.lng != null) {
+            setTracking({ lat: row.lat, lng: row.lng });
+          }
+        }
+      )
+      .subscribe();
+
+    // al activarse el canal, traemos última ubicación para no esperar al próximo INSERT
+    (async () => {
+      const { data: loc } = await supabase
+        .from("delivery_locations")
+        .select("lat, lng")
+        .eq("delivery_id", activeDeliveryId)
+        .order("id", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (loc) setTracking({ lat: loc.lat, lng: loc.lng });
+    })();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeDeliveryId]);
 
   const loadOrders = async (uid: string) => {
     const { data, error } = await supabase
@@ -107,7 +156,8 @@ export default function MisPedidosClient() {
     setOrders((data as Order[]) ?? []);
   };
 
-  const trackDelivery = async (uid: string) => {
+  // determina si hay un pedido "enviado" y resuelve su delivery_id para tracking
+  const refreshActiveDelivery = async (uid: string) => {
     const { data: currentOrder } = await supabase
       .from("orders")
       .select("id")
@@ -117,32 +167,30 @@ export default function MisPedidosClient() {
       .limit(1)
       .maybeSingle();
 
-    if (!currentOrder) {
+    if (!currentOrder?.id) {
+      setActiveDeliveryId(null);
       setTracking(null);
       return;
     }
 
-    const { data: deliveryRow } = await supabase
+    const { data: deliveryRow, error: dErr } = await supabase
       .from("deliveries")
       .select("id")
       .eq("order_id", currentOrder.id)
       .maybeSingle();
 
-    if (!deliveryRow) {
+    if (dErr) {
+      console.error("Error buscando delivery:", dErr.message);
+      return;
+    }
+
+    if (!deliveryRow?.id) {
+      setActiveDeliveryId(null);
       setTracking(null);
       return;
     }
 
-    const { data: loc } = await supabase
-      .from("delivery_locations")
-      .select("lat, lng")
-      .eq("delivery_id", deliveryRow.id)
-      .order("id", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (loc) setTracking({ lat: loc.lat, lng: loc.lng });
-    else setTracking(null);
+    setActiveDeliveryId(Number(deliveryRow.id));
   };
 
   if (loading) return <div className="p-6 text-center">Cargando mis pedidos...</div>;
