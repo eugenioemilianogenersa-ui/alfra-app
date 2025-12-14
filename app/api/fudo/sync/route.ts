@@ -2,37 +2,27 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getFudoSales, getFudoSaleDetail } from "@/lib/fudoClient";
 
-// 🔢 Normalizar teléfono de Fudo a un formato común:
 function normalizePhone(raw?: string | null): string | null {
   if (!raw) return null;
   const digits = raw.replace(/\D/g, "");
   if (!digits) return null;
-
-  if (digits.length >= 10) {
-    return digits.slice(-10);
-  }
+  if (digits.length >= 10) return digits.slice(-10);
   return digits;
 }
 
-// 🧠 Parsear dirección Fudo (string o JSON string tipo ["Calle","123"])
 function parseFudoAddress(raw?: string | null): string | null {
   if (!raw) return null;
-
   if (typeof raw === "string" && raw.trim().startsWith("[")) {
     try {
       const arr = JSON.parse(raw);
-      if (Array.isArray(arr)) {
-        return arr.filter(Boolean).join(" ");
-      }
+      if (Array.isArray(arr)) return arr.filter(Boolean).join(" ");
     } catch {
       return raw;
     }
   }
-
   return raw;
 }
 
-// Inicio de día (UTC) para traer solo ventas de hoy
 function getTodayStartIso(): string {
   const now = new Date();
   const y = now.getUTCFullYear();
@@ -41,20 +31,17 @@ function getTodayStartIso(): string {
   return `${y}-${m}-${d}T00:00:00Z`;
 }
 
-// Ranking de estados para NO retroceder
 const ESTADO_RANK: Record<string, number> = {
   pendiente: 1,
   "en preparación": 2,
   "listo para entregar": 3,
-  "en camino": 4,
   enviado: 4,
   entregado: 5,
-  cancelado: 10, // terminal
+  cancelado: 10,
 };
 
 function mapSaleStateToEstado(saleState?: string | null): string {
   if (!saleState) return "pendiente";
-
   switch (saleState) {
     case "IN-COURSE":
       return "en preparación";
@@ -62,7 +49,6 @@ function mapSaleStateToEstado(saleState?: string | null): string {
     case "DELIVERY-READY-TO-DELIVER":
       return "listo para entregar";
     case "DELIVERY-SENT":
-      // Alineado con botón SALIR del repartidor
       return "enviado";
     case "CLOSED":
       return "entregado";
@@ -73,49 +59,66 @@ function mapSaleStateToEstado(saleState?: string | null): string {
   }
 }
 
-export async function GET() {
-  console.log("🔄 Iniciando Sync Fudo -> Supabase...");
+async function logSync(params: {
+  sale_id?: string | null;
+  order_id?: number | null;
+  action: string;
+  old_estado?: string | null;
+  new_estado?: string | null;
+  final_estado?: string | null;
+  note?: string | null;
+}) {
+  try {
+    await supabaseAdmin.from("fudo_sync_logs").insert({
+      sale_id: params.sale_id ?? null,
+      order_id: params.order_id ?? null,
+      action: params.action,
+      old_estado: params.old_estado ?? null,
+      new_estado: params.new_estado ?? null,
+      final_estado: params.final_estado ?? null,
+      note: params.note ?? null,
+    });
+  } catch {
+    // no rompemos el sync por logging
+  }
+}
 
+export async function GET() {
   const todayStartIso = getTodayStartIso();
 
   try {
     const fudoResp: any = await getFudoSales();
 
-    const salesArray: any[] = Array.isArray((fudoResp as any).sales)
-      ? (fudoResp as any).sales
-      : Array.isArray((fudoResp as any).data)
-      ? (fudoResp as any).data
+    const salesArray: any[] = Array.isArray(fudoResp?.sales)
+      ? fudoResp.sales
+      : Array.isArray(fudoResp?.data)
+      ? fudoResp.data
       : [];
 
     let procesadosOrders = 0;
     let ejemploOrder: any = null;
 
     for (const sale of salesArray) {
-      try {
-        const attrs = sale.attributes || {};
-        const saleId = String(sale.id);
+      const attrs = sale.attributes || {};
+      const saleId = String(sale.id);
 
-        // Solo DELIVERY del día
+      try {
         if (attrs.saleType !== "DELIVERY") continue;
         if (!attrs.createdAt) continue;
         if (attrs.createdAt < todayStartIso) continue;
 
-        // Detalle de venta
         let detail: any;
         try {
           detail = await getFudoSaleDetail(saleId);
         } catch (err: any) {
           const msg = (err as Error).message || "";
-          console.error("❌ Error sale detail:", msg);
+          await logSync({
+            sale_id: saleId,
+            action: "ERROR_DETAIL",
+            note: msg,
+          });
 
-          // Si Fudo responde 429 en el detalle, corto el loop para no seguir
-          if (msg.includes("429")) {
-            console.warn(
-              "[FUDO SYNC] Corte anticipado del loop por 429 en sale detail"
-            );
-            break;
-          }
-
+          if (msg.includes("429")) break;
           continue;
         }
 
@@ -123,9 +126,6 @@ export async function GET() {
         const dAttrs = dData?.attributes || {};
         const included = detail?.included || [];
 
-        console.log("[FUDO SYNC] Venta", saleId, "saleState:", dAttrs.saleState);
-
-        // Cliente (anonymous + Customer incluido)
         const anon = dAttrs.anonymousCustomer || null;
         const customerIncluded = included.find((i: any) => i.type === "Customer");
 
@@ -135,9 +135,7 @@ export async function GET() {
           customerIncluded?.attributes?.name ||
           null;
 
-        const clienteNombre = rawName
-          ? String(rawName).trim()
-          : `Fudo #${saleId}`;
+        const clienteNombre = rawName ? String(rawName).trim() : `Fudo #${saleId}`;
 
         const direccionEntrega =
           parseFudoAddress(anon?.address) ||
@@ -146,74 +144,55 @@ export async function GET() {
 
         const monto = dAttrs.total ?? attrs.total ?? 0;
 
-        // Estado según Fudo
         const estadoDesdeFudo = mapSaleStateToEstado(dAttrs.saleState);
 
-        // Teléfono del cliente Fudo (anonymous o Customer)
         const fudoPhoneRaw: string | null =
           anon?.phone || customerIncluded?.attributes?.phone || null;
 
         const fudoPhoneNormalized = normalizePhone(fudoPhoneRaw);
 
-        // Intentar vincular con un usuario de Alfra por phone_normalized
         let userIdForOrder: string | null = null;
-
         if (fudoPhoneNormalized) {
-          const { data: profileMatch, error: profileErr } = await supabaseAdmin
+          const { data: profileMatch } = await supabaseAdmin
             .from("profiles")
             .select("id, phone_normalized")
             .eq("phone_normalized", fudoPhoneNormalized)
             .maybeSingle();
 
-          if (profileErr) {
-            console.error(
-              "[FUDO SYNC] Error buscando profile por teléfono:",
-              fudoPhoneNormalized,
-              profileErr.message
-            );
-          } else if (profileMatch?.id) {
-            userIdForOrder = profileMatch.id;
-          }
+          if (profileMatch?.id) userIdForOrder = profileMatch.id;
         }
 
-        // Repartidor Fudo (waiter)
-        const waiterRel = dData?.relationships?.waiter?.data;
-        const waiterId: string | null = waiterRel?.id
-          ? String(waiterRel.id)
-          : null;
-
-        // Ver si ya existe el pedido en orders para NO retroceder estado
-        const { data: existingOrder, error: existingError } = await supabaseAdmin
+        const { data: existingOrder } = await supabaseAdmin
           .from("orders")
-          .select("id, estado, user_id")
+          .select("id, estado, user_id, estado_updated_at, estado_source")
           .eq("external_id", saleId)
           .maybeSingle();
 
-        if (existingError) {
-          console.error(
-            "[FUDO SYNC] Error leyendo order existente:",
-            saleId,
-            existingError.message
-          );
-        }
-
         let finalEstado = estadoDesdeFudo;
-        const estadoActual = existingOrder?.estado as string | undefined;
 
-        if (estadoActual) {
-          const rankActual = ESTADO_RANK[estadoActual] ?? 0;
-          const rankNuevo = ESTADO_RANK[estadoDesdeFudo] ?? 0;
+        // Anti-regresión por timestamp + rank
+        if (existingOrder?.estado) {
+          const oldEstado = String(existingOrder.estado);
+          const oldRank = ESTADO_RANK[oldEstado] ?? 0;
+          const newRank = ESTADO_RANK[estadoDesdeFudo] ?? 0;
 
-          // Si el nuevo estado es "más atrás", mantenemos el actual
-          if (rankNuevo < rankActual) {
-            finalEstado = estadoActual;
+          if (newRank < oldRank) {
+            finalEstado = oldEstado;
+
+            await logSync({
+              sale_id: saleId,
+              order_id: existingOrder.id,
+              action: "SKIP_REGRESSION",
+              old_estado: oldEstado,
+              new_estado: estadoDesdeFudo,
+              final_estado: finalEstado,
+              note: `estado_source=${existingOrder.estado_source ?? "null"}`,
+            });
           }
         }
 
-        // Mantener user_id existente si esta corrida no lo encontró
         const finalUserId = userIdForOrder || existingOrder?.user_id || null;
 
-        // Payload de upsert
         const payload: any = {
           cliente_nombre: clienteNombre,
           direccion_entrega: direccionEntrega,
@@ -223,11 +202,10 @@ export async function GET() {
           fudo_id: saleId,
           source: "FUDO",
           external_id: saleId,
+          estado_source: "FUDO",
         };
 
-        if (finalUserId) {
-          payload.user_id = finalUserId;
-        }
+        if (finalUserId) payload.user_id = finalUserId;
 
         const { data: upsertedOrder, error: upsertError } = await supabaseAdmin
           .from("orders")
@@ -236,78 +214,36 @@ export async function GET() {
           .single();
 
         if (upsertError || !upsertedOrder) {
-          console.error("❌ Error upsert orders:", upsertError?.message);
+          await logSync({
+            sale_id: saleId,
+            action: "ERROR_UPSERT",
+            old_estado: existingOrder?.estado ?? null,
+            new_estado: estadoDesdeFudo,
+            final_estado: finalEstado,
+            note: upsertError?.message ?? "unknown",
+          });
           continue;
         }
 
         procesadosOrders++;
         if (!ejemploOrder) ejemploOrder = upsertedOrder;
 
-        // AUTO-ASIGNAR DELIVERY SEGÚN WAITER DE FUDO
-        if (waiterId) {
-          try {
-            const { data: waiterMap, error: waiterMapError } = await supabaseAdmin
-              .from("fudo_waiter_map")
-              .select("delivery_user_id")
-              .eq("waiter_id_fudo", waiterId)
-              .maybeSingle();
+        await logSync({
+          sale_id: saleId,
+          order_id: upsertedOrder.id,
+          action: "UPSERT_ORDER",
+          old_estado: existingOrder?.estado ?? null,
+          new_estado: estadoDesdeFudo,
+          final_estado: finalEstado,
+          note: "ok",
+        });
 
-            if (waiterMapError) {
-              console.error(
-                "[FUDO SYNC] Error leyendo fudo_waiter_map:",
-                waiterId,
-                waiterMapError.message
-              );
-            }
-
-            if (waiterMap?.delivery_user_id) {
-              const { data: existingDelivery, error: existingDeliveryError } =
-                await supabaseAdmin
-                  .from("deliveries")
-                  .select("id")
-                  .eq("order_id", upsertedOrder.id)
-                  .maybeSingle();
-
-              if (existingDeliveryError) {
-                console.error(
-                  "[FUDO SYNC] Error consultando deliveries:",
-                  upsertedOrder.id,
-                  existingDeliveryError.message
-                );
-              }
-
-              if (!existingDeliveryError && !existingDelivery) {
-                const { error: insertDeliveryError } = await supabaseAdmin
-                  .from("deliveries")
-                  .insert({
-                    order_id: upsertedOrder.id,
-                    delivery_user_id: waiterMap.delivery_user_id,
-                    status: "asignado",
-                  });
-
-                if (insertDeliveryError) {
-                  console.error(
-                    "[FUDO SYNC] Error insertando deliveries:",
-                    upsertedOrder.id,
-                    insertDeliveryError.message
-                  );
-                } else {
-                  console.log(
-                    "[FUDO SYNC] Delivery auto-asignado desde Fudo:",
-                    "order",
-                    upsertedOrder.id,
-                    "→ user",
-                    waiterMap.delivery_user_id
-                  );
-                }
-              }
-            }
-          } catch (e) {
-            console.error("⚠️ Error auto-asignando delivery:", e);
-          }
-        }
-      } catch (err) {
-        console.error("❌ Error procesando sale:", err);
+      } catch (err: any) {
+        await logSync({
+          sale_id: saleId,
+          action: "ERROR_LOOP",
+          note: err?.message ?? "unknown",
+        });
         continue;
       }
     }
@@ -320,14 +256,7 @@ export async function GET() {
     });
   } catch (err: any) {
     const msg = (err as Error).message || "Error desconocido";
-    console.error("[FUDO SYNC] Error general:", msg);
-
-    // Si es un 429 desde getFudoSales, devolvemos 429 también
     const status = msg.includes("429") ? 429 : 500;
-
-    return NextResponse.json(
-      { ok: false, error: msg },
-      { status }
-    );
+    return NextResponse.json({ ok: false, error: msg }, { status });
   }
 }
