@@ -22,6 +22,8 @@ type Profile = {
   role: string;
 };
 
+type ViewMode = "SHIFT" | "48H" | "ID";
+
 const ESTADOS = [
   "pendiente",
   "en preparación",
@@ -36,18 +38,14 @@ function estadoBadgeClass(estado?: string | null) {
     case "pendiente":
       return "bg-slate-200 text-slate-800 border-slate-300";
     case "en preparación":
-      // naranja (Fudo-like)
       return "bg-orange-100 text-orange-800 border-orange-200";
     case "listo para entregar":
-      // azul (Fudo-like)
       return "bg-blue-100 text-blue-800 border-blue-200";
     case "enviado":
-      // amarillo (Fudo-like)
-      return "bg-yellow-100 text-yellow-800 border-yellow-200";
+      return "bg-yellow-100 text-yellow-900 border-yellow-300";
     case "entregado":
       return "bg-emerald-100 text-emerald-800 border-emerald-200";
     case "cancelado":
-      // rojo fuerte, bien visible
       return "bg-red-100 text-red-800 border-red-300";
     default:
       return "bg-slate-200 text-slate-800 border-slate-300";
@@ -55,7 +53,6 @@ function estadoBadgeClass(estado?: string | null) {
 }
 
 function estadoSelectClass(estado?: string | null) {
-  // mismo criterio pero un poquito más “fuerte” para el select
   switch (estado) {
     case "pendiente":
       return "bg-slate-100 text-slate-900 border-slate-300";
@@ -93,6 +90,31 @@ function estadoLeftBorder(estado?: string | null) {
   }
 }
 
+/**
+ * ✅ Día operativo ALFRA:
+ * - abre 19:00
+ * - cierra 02:00
+ *
+ * Si la hora local es 00:00–01:59 => turno arrancó AYER 19:00
+ * Si es >= 02:00 => turno arrancó HOY 19:00
+ */
+function getAlfraShiftStartIsoUtc(): string {
+  const now = new Date();
+  const hourLocal = now.getHours();
+  const start = new Date(now);
+
+  if (hourLocal < 2) start.setDate(start.getDate() - 1);
+  start.setHours(19, 0, 0, 0);
+
+  return start.toISOString();
+}
+
+function getLast48hIsoUtc(): string {
+  const d = new Date();
+  d.setHours(d.getHours() - 48);
+  return d.toISOString();
+}
+
 export default function AdminPedidosClient() {
   const supabase = createClient();
 
@@ -101,35 +123,15 @@ export default function AdminPedidosClient() {
   const [loading, setLoading] = useState(true);
   const [syncingFudo, setSyncingFudo] = useState(false);
 
+  // ✅ nuevos controles
+  const [viewMode, setViewMode] = useState<ViewMode>("SHIFT");
+  const [searchId, setSearchId] = useState<string>("");
+
   const isSyncingRef = useRef(false);
   const last429Ref = useRef<number | null>(null);
 
-  const getTodayStartIsoUtc = () => {
-    const now = new Date();
-    const y = now.getUTCFullYear();
-    const m = String(now.getUTCMonth() + 1).padStart(2, "0");
-    const d = String(now.getUTCDate()).padStart(2, "0");
-    return `${y}-${m}-${d}T00:00:00Z`;
-  };
-
-  const cargarPedidos = async () => {
-    const todayStartIso = getTodayStartIsoUtc();
-
-    const { data: ordersData, error: ordersError } = await supabase
-      .from("orders")
-      .select("*")
-      .gte("creado_en", todayStartIso)
-      .order("id", { ascending: false });
-
-    if (ordersError) {
-      console.error("Error cargando pedidos:", ordersError.message);
-      return;
-    }
-
-    if (!ordersData || ordersData.length === 0) {
-      setPedidos([]);
-      return;
-    }
+  const enrichWithDeliveryNames = async (ordersData: any[]) => {
+    if (!ordersData || ordersData.length === 0) return [];
 
     const orderIds = ordersData.map((o: any) => o.id);
 
@@ -165,17 +167,45 @@ export default function AdminPedidosClient() {
       });
 
       deliveriesData.forEach((d: any) => {
-        const nombre = nombrePorUserId[d.delivery_user_id] || null;
-        repartidorPorOrderId[d.order_id] = nombre;
+        repartidorPorOrderId[d.order_id] = nombrePorUserId[d.delivery_user_id] || null;
       });
     }
 
-    const enriched = (ordersData as any[]).map((o) => ({
+    return ordersData.map((o: any) => ({
       ...o,
       repartidor_nombre: repartidorPorOrderId[o.id] ?? null,
-    }));
+    })) as Order[];
+  };
 
-    setPedidos(enriched as Order[]);
+  const cargarPedidos = async () => {
+    try {
+      let query = supabase.from("orders").select("*").order("id", { ascending: false });
+
+      if (viewMode === "SHIFT") {
+        query = query.gte("creado_en", getAlfraShiftStartIsoUtc());
+      } else if (viewMode === "48H") {
+        query = query.gte("creado_en", getLast48hIsoUtc());
+      } else if (viewMode === "ID") {
+        const idNum = Number(searchId);
+        if (!searchId || Number.isNaN(idNum)) {
+          setPedidos([]);
+          return;
+        }
+        query = query.eq("id", idNum);
+      }
+
+      const { data: ordersData, error: ordersError } = await query;
+
+      if (ordersError) {
+        console.error("Error cargando pedidos:", ordersError.message);
+        return;
+      }
+
+      const enriched = await enrichWithDeliveryNames((ordersData as any[]) ?? []);
+      setPedidos(enriched);
+    } catch (e: any) {
+      console.error("Error cargarPedidos:", e?.message || e);
+    }
   };
 
   const syncFudo = async (opts?: { forced?: boolean }) => {
@@ -237,31 +267,11 @@ export default function AdminPedidosClient() {
 
     const channel = supabase
       .channel("admin-dashboard-live")
-      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, (payload) => {
-        if (payload.eventType === "INSERT") {
-          const nuevo = payload.new as Order;
-          const todayStartIso = getTodayStartIsoUtc();
-          if (nuevo.creado_en >= todayStartIso) {
-            setPedidos((prev) => [nuevo, ...prev]);
-          }
-        } else if (payload.eventType === "UPDATE") {
-          const updated = payload.new as any;
-          setPedidos((prev) =>
-            prev.map((p) =>
-              p.id === updated.id
-                ? {
-                    ...p,
-                    ...updated,
-                    // preservar UI-only
-                    repartidor_nombre: p.repartidor_nombre ?? null,
-                  }
-                : p
-            )
-          );
-        }
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, async () => {
+        await cargarPedidos();
       })
-      .on("postgres_changes", { event: "*", schema: "public", table: "deliveries" }, () => {
-        cargarPedidos();
+      .on("postgres_changes", { event: "*", schema: "public", table: "deliveries" }, async () => {
+        await cargarPedidos();
       })
       .subscribe();
 
@@ -275,6 +285,12 @@ export default function AdminPedidosClient() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // recarga al cambiar modo
+  useEffect(() => {
+    if (!loading) cargarPedidos();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode]);
 
   const asignarDelivery = async (orderId: number, deliveryUserId: string) => {
     if (!deliveryUserId) {
@@ -304,9 +320,7 @@ export default function AdminPedidosClient() {
   };
 
   const cambiarEstado = async (id: number, nuevoEstado: string) => {
-    setPedidos((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, estado: nuevoEstado } : p))
-    );
+    setPedidos((prev) => prev.map((p) => (p.id === id ? { ...p, estado: nuevoEstado } : p)));
 
     await supabase
       .from("orders")
@@ -315,6 +329,11 @@ export default function AdminPedidosClient() {
         estado_source: "APP_ADMIN",
       })
       .eq("id", id);
+  };
+
+  const onBuscar = async () => {
+    setViewMode("ID");
+    await cargarPedidos();
   };
 
   if (loading) return <div className="p-6 text-center">Conectando con la base...</div>;
@@ -339,7 +358,54 @@ export default function AdminPedidosClient() {
         </div>
       </div>
 
-      {/* ✅ Eliminado: Nuevo Pedido Manual (no se usa) */}
+      {/* ✅ Barra de filtros pro */}
+      <div className="bg-white border rounded-xl p-3 shadow-sm flex flex-col md:flex-row gap-3 items-start md:items-center justify-between">
+        <div className="flex flex-wrap gap-2 items-center">
+          <span className="text-xs font-bold text-slate-500 uppercase">Vista:</span>
+
+          <button
+            onClick={() => setViewMode("SHIFT")}
+            className={`text-xs px-3 py-1 rounded-full border ${
+              viewMode === "SHIFT" ? "bg-slate-900 text-white border-slate-900" : "bg-white hover:bg-slate-50"
+            }`}
+          >
+            Turno actual (19–02)
+          </button>
+
+          <button
+            onClick={() => setViewMode("48H")}
+            className={`text-xs px-3 py-1 rounded-full border ${
+              viewMode === "48H" ? "bg-slate-900 text-white border-slate-900" : "bg-white hover:bg-slate-50"
+            }`}
+          >
+            Últimas 48h
+          </button>
+
+          <button
+            onClick={() => setViewMode("ID")}
+            className={`text-xs px-3 py-1 rounded-full border ${
+              viewMode === "ID" ? "bg-slate-900 text-white border-slate-900" : "bg-white hover:bg-slate-50"
+            }`}
+          >
+            Buscar por ID
+          </button>
+        </div>
+
+        <div className="flex gap-2 items-center w-full md:w-auto">
+          <input
+            value={searchId}
+            onChange={(e) => setSearchId(e.target.value)}
+            placeholder="ID pedido (ej: 45536)"
+            className="border rounded px-3 py-2 text-sm w-full md:w-56"
+          />
+          <button
+            onClick={onBuscar}
+            className="bg-slate-900 text-white text-sm font-bold px-4 py-2 rounded hover:bg-black"
+          >
+            Buscar
+          </button>
+        </div>
+      </div>
 
       <div className="space-y-4">
         {pedidos.map((p) => {
@@ -421,9 +487,7 @@ export default function AdminPedidosClient() {
                   </select>
                   <button
                     onClick={() => {
-                      const select = document.getElementById(
-                        `sel-${p.id}`
-                      ) as HTMLSelectElement;
+                      const select = document.getElementById(`sel-${p.id}`) as HTMLSelectElement;
                       asignarDelivery(p.id, select.value);
                     }}
                     className="bg-slate-800 text-white text-[10px] uppercase font-bold px-3 py-1.5 rounded hover:bg-black transition"
