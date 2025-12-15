@@ -71,7 +71,7 @@ function mapSaleStateToEstado(saleState?: string | null): string {
 async function logSync(params: {
   sale_id?: string | null;
   order_id?: number | null;
-  action: string; // 'UPSERT_ORDER' | 'SKIP_REGRESSION' | 'AUTO_ASSIGN' | 'ERROR_*'
+  action: string;
   old_estado?: string | null;
   new_estado?: string | null;
   final_estado?: string | null;
@@ -133,7 +133,9 @@ export async function GET() {
           });
 
           if (msg.includes("429")) {
-            console.warn("[FUDO SYNC] Corte anticipado del loop por 429 en sale detail");
+            console.warn(
+              "[FUDO SYNC] Corte anticipado del loop por 429 en sale detail"
+            );
             break;
           }
           continue;
@@ -181,7 +183,10 @@ export async function GET() {
             .maybeSingle();
 
           if (profileErr) {
-            console.error("[FUDO SYNC] Error buscando profile por teléfono:", profileErr.message);
+            console.error(
+              "[FUDO SYNC] Error buscando profile por teléfono:",
+              profileErr.message
+            );
           } else if (profileMatch?.id) {
             userIdForOrder = profileMatch.id;
           }
@@ -199,7 +204,10 @@ export async function GET() {
           .maybeSingle();
 
         if (existingError) {
-          console.error("[FUDO SYNC] Error leyendo order existente:", existingError.message);
+          console.error(
+            "[FUDO SYNC] Error leyendo order existente:",
+            existingError.message
+          );
         }
 
         let finalEstado = estadoDesdeFudo;
@@ -274,7 +282,46 @@ export async function GET() {
           note: "ok",
         });
 
-        // ✅✅✅ AUTO-ASIGNAR DELIVERY SEGÚN WAITER DE FUDO (ESTO FALTABA)
+        // ✅ PUSH por cambio real de estado (FUDO -> APP)
+        const prevEstado = (existingOrder?.estado ?? null) as string | null;
+
+        if (
+          prevEstado !== finalEstado &&
+          ["listo para entregar", "enviado", "entregado", "cancelado"].includes(finalEstado)
+        ) {
+          try {
+            const base =
+              process.env.NEXT_PUBLIC_SITE_URL || "https://alfra-app.vercel.app";
+
+            await fetch(`${base}/api/push/notify-order-status`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ orderId: upsertedOrder.id, estado: finalEstado }),
+            });
+
+            await logSync({
+              sale_id: saleId,
+              order_id: upsertedOrder.id,
+              action: "PUSH_ORDER_STATUS",
+              old_estado: prevEstado,
+              new_estado: estadoDesdeFudo,
+              final_estado: finalEstado,
+              note: "push queued",
+            });
+          } catch (e: any) {
+            await logSync({
+              sale_id: saleId,
+              order_id: upsertedOrder.id,
+              action: "ERROR_PUSH_ORDER_STATUS",
+              old_estado: prevEstado,
+              new_estado: estadoDesdeFudo,
+              final_estado: finalEstado,
+              note: e?.message || "push error",
+            });
+          }
+        }
+
+        // ✅ AUTO-ASIGNAR DELIVERY SEGÚN WAITER DE FUDO
         if (waiterId) {
           try {
             const { data: waiterMap, error: waiterMapError } = await supabaseAdmin
@@ -284,7 +331,10 @@ export async function GET() {
               .maybeSingle();
 
             if (waiterMapError) {
-              console.error("[FUDO SYNC] Error leyendo fudo_waiter_map:", waiterMapError.message);
+              console.error(
+                "[FUDO SYNC] Error leyendo fudo_waiter_map:",
+                waiterMapError.message
+              );
             }
 
             if (waiterMap?.delivery_user_id) {
@@ -296,7 +346,10 @@ export async function GET() {
                   .maybeSingle();
 
               if (existingDeliveryError) {
-                console.error("[FUDO SYNC] Error consultando deliveries:", existingDeliveryError.message);
+                console.error(
+                  "[FUDO SYNC] Error consultando deliveries:",
+                  existingDeliveryError.message
+                );
               }
 
               if (!existingDeliveryError && !existingDelivery) {
@@ -309,7 +362,10 @@ export async function GET() {
                   });
 
                 if (insertDeliveryError) {
-                  console.error("[FUDO SYNC] Error insertando deliveries:", insertDeliveryError.message);
+                  console.error(
+                    "[FUDO SYNC] Error insertando deliveries:",
+                    insertDeliveryError.message
+                  );
                   await logSync({
                     sale_id: saleId,
                     order_id: upsertedOrder.id,
