@@ -17,7 +17,12 @@ type DeliveryItem = {
   orders: Order;
 };
 
-const ACTIVE_STATES = ["pendiente", "en preparación", "listo para entregar", "enviado"];
+const ACTIVE_STATES = [
+  "pendiente",
+  "en preparación",
+  "listo para entregar",
+  "enviado",
+];
 
 function estadoBadgeClass(estado?: string | null) {
   switch (estado) {
@@ -39,7 +44,6 @@ function estadoBadgeClass(estado?: string | null) {
 }
 
 function estadoHeaderClass(estado?: string | null) {
-  // banda superior (más “Fudo”)
   switch (estado) {
     case "pendiente":
       return "bg-slate-800";
@@ -106,12 +110,20 @@ export default function DeliveryClient() {
 
     const channel = supabase
       .channel("delivery-live")
-      .on("postgres_changes", { event: "*", schema: "public", table: "deliveries" }, () => {
-        if (myUserId) fetchMyDeliveries(myUserId);
-      })
-      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => {
-        if (myUserId) fetchMyDeliveries(myUserId);
-      })
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "deliveries" },
+        () => {
+          if (myUserId) fetchMyDeliveries(myUserId);
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "orders" },
+        () => {
+          if (myUserId) fetchMyDeliveries(myUserId);
+        }
+      )
       .subscribe();
 
     return () => {
@@ -150,7 +162,9 @@ export default function DeliveryClient() {
 
       const listaFinal: DeliveryItem[] = [];
       misAsignaciones.forEach((asignacion) => {
-        const ordenEncontrada = ordenesDetalle?.find((o) => o.id === asignacion.order_id);
+        const ordenEncontrada = ordenesDetalle?.find(
+          (o) => o.id === asignacion.order_id
+        );
         if (ordenEncontrada) {
           listaFinal.push({
             id: asignacion.id,
@@ -203,7 +217,8 @@ export default function DeliveryClient() {
       (err) => {
         console.error("Error GPS:", err);
         const msg =
-          (err as GeolocationPositionError).message || "Problema con GPS (¿sin HTTPS?).";
+          (err as GeolocationPositionError).message ||
+          "Problema con GPS (¿sin HTTPS?).";
         setGpsError(`Problema con GPS: ${msg}`);
       },
       options
@@ -225,7 +240,9 @@ export default function DeliveryClient() {
   const handleComenzarViaje = async (orderId: number) => {
     setItems((prev) =>
       prev.map((item) =>
-        item.orders.id === orderId ? { ...item, orders: { ...item.orders, estado: "enviado" } } : item
+        item.orders.id === orderId
+          ? { ...item, orders: { ...item.orders, estado: "enviado" } }
+          : item
       )
     );
 
@@ -236,6 +253,13 @@ export default function DeliveryClient() {
         estado_source: "APP_DELIVERY",
       })
       .eq("id", orderId);
+
+    // ✅ PUSH al cliente: pedido enviado
+    await fetch("/api/push/notify-order-status", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ orderId, estado: "enviado" }),
+    });
   };
 
   const handleEntregar = async (orderId: number) => {
@@ -252,15 +276,25 @@ export default function DeliveryClient() {
       })
       .eq("id", orderId);
 
+    // ✅ PUSH al cliente: pedido entregado
+    await fetch("/api/push/notify-order-status", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ orderId, estado: "entregado" }),
+    });
+
     stopTracking();
   };
 
-  if (loading) return <div className="p-6 text-center text-slate-500">Cargando...</div>;
+  if (loading)
+    return <div className="p-6 text-center text-slate-500">Cargando...</div>;
 
   return (
     <div className="p-4 pb-24 space-y-4 bg-slate-50 min-h-screen">
       <div className="flex justify-between items-center">
-        <h1 className="text-xl font-bold text-slate-800">🛵 Panel Repartidor</h1>
+        <h1 className="text-xl font-bold text-slate-800">
+          🛵 Panel Repartidor
+        </h1>
         {isTracking && (
           <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-1 rounded border border-emerald-200 animate-pulse">
             ● GPS ACTIVO
@@ -286,16 +320,21 @@ export default function DeliveryClient() {
         return (
           <div
             key={item.id}
-            className={`border rounded-xl shadow-sm overflow-hidden bg-white ${estadoRingClass(order.estado)}`}
+            className={`border rounded-xl shadow-sm overflow-hidden bg-white ${estadoRingClass(
+              order.estado
+            )}`}
           >
-            <div className={`${estadoHeaderClass(order.estado)} text-white p-4 flex justify-between items-center`}>
+            <div
+              className={`${estadoHeaderClass(
+                order.estado
+              )} text-white p-4 flex justify-between items-center`}
+            >
               <span className="font-bold text-lg">#{order.id}</span>
 
               <span
                 className={`text-[11px] px-2 py-1 rounded-full uppercase font-bold border ${estadoBadgeClass(
                   order.estado
                 )}`}
-                // badge “claro” arriba de banda “fuerte”
                 style={{ backgroundColor: "rgba(255,255,255,0.9)" }}
               >
                 {order.estado}
@@ -303,14 +342,21 @@ export default function DeliveryClient() {
             </div>
 
             <div className="p-4 space-y-2">
-              <p className="text-lg font-bold text-slate-800">{order.cliente_nombre}</p>
-              <p className="text-sm text-slate-600">📍 {order.direccion_entrega}</p>
+              <p className="text-lg font-bold text-slate-800">
+                {order.cliente_nombre}
+              </p>
+              <p className="text-sm text-slate-600">
+                📍 {order.direccion_entrega}
+              </p>
 
               <div className="pt-2 flex justify-between items-center">
-                <p className="text-2xl text-emerald-600 font-bold">${order.monto}</p>
+                <p className="text-2xl text-emerald-600 font-bold">
+                  ${order.monto}
+                </p>
                 <a
                   href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-                    (order.direccion_entrega || "") + " Coronel Moldes Cordoba"
+                    (order.direccion_entrega || "") +
+                      " Coronel Moldes Cordoba"
                   )}`}
                   target="_blank"
                   rel="noopener noreferrer"
