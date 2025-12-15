@@ -7,55 +7,58 @@ export async function POST(req: Request) {
     const { userId, delta, reason } = await req.json();
 
     if (!userId) {
-      return NextResponse.json(
-        { error: "userId requerido" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "userId requerido" }, { status: 400 });
     }
 
-    // 🔐 inicializar web-push (VAPID)
     initWebPush();
 
-    // 🔎 traer suscripciones del usuario
     const { data: subs, error } = await supabaseAdmin
       .from("push_subscriptions")
-      .select("*")
-      .eq("user_id", userId);
+      .select("endpoint,p256dh,auth,enabled")
+      .eq("user_id", userId)
+      .eq("enabled", true);
 
     if (error) {
-      console.error("DB error:", error);
+      console.error("push_subscriptions select error:", error);
       return NextResponse.json({ error: "DB error" }, { status: 500 });
     }
 
+    console.log("subs found:", subs?.length ?? 0, "userId:", userId);
+
     if (!subs || subs.length === 0) {
-      return NextResponse.json({ ok: true, sent: 0 });
+      return NextResponse.json({ ok: true, sent: 0, note: "no subs" });
     }
 
-    // 📦 payload
     const payload = {
       title: "AlFra – Puntos",
-      body: `${delta > 0 ? "+" : ""}${delta} pts • ${reason}`,
+      body: `${delta > 0 ? "+" : ""}${delta} pts • ${reason || "Actualización"}`,
       data: { url: "/puntos" },
     };
 
-    // 🚀 enviar push a todas las suscripciones
-    for (const sub of subs) {
-      await sendToSubscription(
-        {
-          endpoint: sub.endpoint,
-          p256dh: sub.p256dh,
-          auth: sub.auth,
-        },
-        payload
-      );
+    let sent = 0;
+    const failures: any[] = [];
+
+    for (const s of subs) {
+      try {
+        await sendToSubscription(
+          { endpoint: s.endpoint, p256dh: s.p256dh, auth: s.auth },
+          payload
+        );
+        sent++;
+      } catch (e: any) {
+        failures.push({
+          endpoint: s.endpoint?.slice(0, 40) + "...",
+          message: e?.message,
+          statusCode: e?.statusCode,
+          body: e?.body,
+        });
+        console.error("webpush error:", e?.statusCode, e?.message, e?.body);
+      }
     }
 
-    return NextResponse.json({ ok: true, sent: subs.length });
+    return NextResponse.json({ ok: true, sent, failures });
   } catch (err) {
-    console.error("notify-points error:", err);
-    return NextResponse.json(
-      { error: "Internal error" },
-      { status: 500 }
-    );
+    console.error("notify-points fatal:", err);
+    return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
 }
