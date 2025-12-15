@@ -93,6 +93,17 @@ export default function AdminPuntosClient() {
       metadata: { source: "admin_puntos" },
     });
 
+    // ✅ PUSH: notificar al cliente (si tiene subscripción + prefs habilitadas)
+    await fetch("/api/push/notify-points", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userId: selectedUser.id,
+        delta,
+        reason: reason || "Ajuste Admin",
+      }),
+    });
+
     setSelectedUser(null);
     setAmount("");
     setReason("");

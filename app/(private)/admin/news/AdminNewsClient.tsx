@@ -41,6 +41,7 @@ export default function AdminNewsPage() {
   const [imageUrl, setImageUrl] = useState("");
   const [category, setCategory] = useState("");
   const [isPublished, setIsPublished] = useState(false);
+  const [wasPublished, setWasPublished] = useState(false); // ✅ CLAVE anti-spam
   const [saving, setSaving] = useState(false);
   const [formMessage, setFormMessage] = useState<string | null>(null);
 
@@ -131,6 +132,7 @@ export default function AdminNewsPage() {
     setImageUrl("");
     setCategory("");
     setIsPublished(false);
+    setWasPublished(false);
     setFormMessage(null);
     setImageUploadMessage(null);
     setSelectedFileName("Ningún archivo seleccionado");
@@ -144,6 +146,7 @@ export default function AdminNewsPage() {
     setImageUrl(n.image_url ?? "");
     setCategory(n.category ?? "");
     setIsPublished(n.is_published);
+    setWasPublished(n.is_published); // ✅ guarda estado anterior
     setFormMessage(null);
     setImageUploadMessage(null);
     setSelectedFileName("Imagen ya cargada");
@@ -220,6 +223,19 @@ export default function AdminNewsPage() {
         }
 
         if (inserted) {
+          // ✅ PUSH SOLO si se publica al crear
+          if (isPublished) {
+            await fetch("/api/push/notify-news", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                newsId: inserted.id,
+                title: inserted.title,
+                summary: inserted.summary || "Entrá a ver la novedad.",
+              }),
+            });
+          }
+
           setNews((prev) => [inserted as NewsRow, ...prev]);
           resetForm();
           setFormMessage("Noticia creada correctamente.");
@@ -248,9 +264,24 @@ export default function AdminNewsPage() {
         }
 
         if (updated) {
+          // ✅ PUSH SOLO si pasa de borrador → publicada
+          if (!wasPublished && isPublished) {
+            await fetch("/api/push/notify-news", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                newsId: updated.id,
+                title: updated.title,
+                summary: updated.summary || "Entrá a ver la novedad.",
+              }),
+            });
+          }
+
           setNews((prev) =>
             prev.map((n) => (n.id === editingId ? (updated as NewsRow) : n))
           );
+
+          setWasPublished(isPublished);
           setFormMessage("Noticia actualizada correctamente.");
         }
       }
@@ -308,9 +339,7 @@ export default function AdminNewsPage() {
               </strong>{" "}
               (rol: <strong>{adminProfile.role}</strong>)
             </p>
-            <p className="text-xs text-muted-foreground">
-              ID: {adminProfile.id}
-            </p>
+            <p className="text-xs text-muted-foreground">ID: {adminProfile.id}</p>
           </section>
 
           <section className="border rounded p-4 space-y-3">
@@ -331,9 +360,7 @@ export default function AdminNewsPage() {
 
             <form onSubmit={handleSubmit} className="space-y-3">
               <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">
-                  Título *
-                </label>
+                <label className="text-xs text-muted-foreground">Título *</label>
                 <input
                   type="text"
                   value={title}
@@ -374,7 +401,6 @@ export default function AdminNewsPage() {
                     Imagen (PC / galería / cámara)
                   </label>
 
-                  {/* input real oculto */}
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -397,14 +423,10 @@ export default function AdminNewsPage() {
                   </div>
 
                   {imageUploading && (
-                    <p className="text-xs text-slate-500">
-                      Subiendo imagen...
-                    </p>
+                    <p className="text-xs text-slate-500">Subiendo imagen...</p>
                   )}
                   {imageUploadMessage && (
-                    <p className="text-xs text-slate-500">
-                      {imageUploadMessage}
-                    </p>
+                    <p className="text-xs text-slate-500">{imageUploadMessage}</p>
                   )}
 
                   {imageUrl && (
@@ -422,9 +444,7 @@ export default function AdminNewsPage() {
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-xs text-muted-foreground">
-                    Categoría
-                  </label>
+                  <label className="text-xs text-muted-foreground">Categoría</label>
                   <input
                     type="text"
                     value={category}
