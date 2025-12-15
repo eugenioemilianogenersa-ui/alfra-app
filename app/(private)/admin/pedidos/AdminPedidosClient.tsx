@@ -1,394 +1,390 @@
 "use client";
 
-import React, { useEffect, useState, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabaseClient";
 
 type Order = {
   id: number;
-  cliente_nombre: string;
-  direccion_entrega: string;
-  monto: number;
-  estado: string;
+  cliente_nombre: string | null;
+  direccion_entrega: string | null;
+  monto: number | null;
+  estado: string | null;
+  creado_en: string;
+  repartidor_nombre?: string | null;
+  estado_source?: string | null;
 };
 
-type DeliveryItem = {
-  id: number;
-  order_id: number;
-  orders: Order;
+type Profile = {
+  id: string;
+  email: string | null;
+  display_name: string | null;
+  role: string;
 };
 
-const ACTIVE_STATES = [
+type ViewMode = "SHIFT" | "48H" | "ID";
+
+const ESTADOS = [
   "pendiente",
   "en preparación",
   "listo para entregar",
   "enviado",
+  "entregado",
+  "cancelado",
 ];
 
-function estadoBadgeClass(estado?: string | null) {
-  switch (estado) {
-    case "pendiente":
-      return "bg-slate-200 text-slate-800 border-slate-300";
-    case "en preparación":
-      return "bg-orange-100 text-orange-800 border-orange-200";
-    case "listo para entregar":
-      return "bg-blue-100 text-blue-800 border-blue-200";
-    case "enviado":
-      return "bg-yellow-100 text-yellow-900 border-yellow-300";
-    case "entregado":
-      return "bg-emerald-100 text-emerald-800 border-emerald-200";
-    case "cancelado":
-      return "bg-red-100 text-red-900 border-red-300";
-    default:
-      return "bg-slate-200 text-slate-800 border-slate-300";
-  }
-}
+// ---------- helpers UI ----------
+const estadoBadgeClass = (e?: string | null) =>
+  ({
+    pendiente: "bg-slate-200 text-slate-800 border-slate-300",
+    "en preparación": "bg-orange-100 text-orange-800 border-orange-200",
+    "listo para entregar": "bg-blue-100 text-blue-800 border-blue-200",
+    enviado: "bg-yellow-100 text-yellow-900 border-yellow-300",
+    entregado: "bg-emerald-100 text-emerald-800 border-emerald-200",
+    cancelado: "bg-red-100 text-red-800 border-red-300",
+  } as any)[e ?? ""] ?? "bg-slate-200 text-slate-800 border-slate-300";
 
-function estadoHeaderClass(estado?: string | null) {
-  switch (estado) {
-    case "pendiente":
-      return "bg-slate-800";
-    case "en preparación":
-      return "bg-orange-600";
-    case "listo para entregar":
-      return "bg-blue-700";
-    case "enviado":
-      return "bg-yellow-600";
-    case "entregado":
-      return "bg-emerald-700";
-    case "cancelado":
-      return "bg-red-700";
-    default:
-      return "bg-slate-800";
-  }
-}
+const estadoSelectClass = (e?: string | null) =>
+  ({
+    pendiente: "bg-slate-100 text-slate-900 border-slate-300",
+    "en preparación": "bg-orange-100 text-orange-900 border-orange-300",
+    "listo para entregar": "bg-blue-100 text-blue-900 border-blue-300",
+    enviado: "bg-yellow-100 text-yellow-900 border-yellow-300",
+    entregado: "bg-emerald-100 text-emerald-900 border-emerald-300",
+    cancelado: "bg-red-100 text-red-900 border-red-400",
+  } as any)[e ?? ""] ?? "bg-slate-100 text-slate-900 border-slate-300";
 
-function estadoRingClass(estado?: string | null) {
-  switch (estado) {
-    case "en preparación":
-      return "ring-2 ring-orange-400";
-    case "listo para entregar":
-      return "ring-2 ring-blue-400";
-    case "enviado":
-      return "ring-2 ring-yellow-400";
-    case "entregado":
-      return "ring-2 ring-emerald-400";
-    case "cancelado":
-      return "ring-2 ring-red-400";
-    default:
-      return "";
-  }
-}
+const estadoLeftBorder = (e?: string | null) =>
+  ({
+    pendiente: "border-l-slate-400",
+    "en preparación": "border-l-orange-500",
+    "listo para entregar": "border-l-blue-500",
+    enviado: "border-l-yellow-500",
+    entregado: "border-l-emerald-600",
+    cancelado: "border-l-red-600",
+  } as any)[e ?? ""] ?? "border-l-slate-400";
 
-export default function DeliveryClient() {
+// ---------- fechas (timestamp without time zone) ----------
+const pad = (n: number) => String(n).padStart(2, "0");
+const pgLocal = (d: Date) =>
+  `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(
+    d.getHours()
+  )}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+
+const getShiftStart = () => {
+  const now = new Date();
+  const d = new Date(now);
+  if (now.getHours() < 2) d.setDate(d.getDate() - 1);
+  d.setHours(19, 0, 0, 0);
+  return pgLocal(d);
+};
+
+const get48h = () => {
+  const d = new Date();
+  d.setHours(d.getHours() - 48);
+  return pgLocal(d);
+};
+
+export default function AdminPedidosClient() {
   const supabase = createClient();
-  const [items, setItems] = useState<DeliveryItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [isTracking, setIsTracking] = useState(false);
-  const [gpsError, setGpsError] = useState<string | null>(null);
-  const [myUserId, setMyUserId] = useState<string | null>(null);
 
-  const watchIdRef = useRef<number | null>(null);
-  const deliveryIdActiveRef = useRef<number | null>(null);
+  const [pedidos, setPedidos] = useState<Order[]>([]);
+  const [repartidores, setRepartidores] = useState<Profile[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [syncingFudo, setSyncingFudo] = useState(false);
+
+  const [viewMode, setViewMode] = useState<ViewMode>("SHIFT");
+  const [searchId, setSearchId] = useState("");
+
+  const isSyncingRef = useRef(false);
+  const last429Ref = useRef<number | null>(null);
+
+  const enrich = async (orders: any[]) => {
+    if (!orders.length) return [];
+    const ids = orders.map((o) => o.id);
+
+    const { data: del } = await supabase
+      .from("deliveries")
+      .select("order_id, delivery_user_id")
+      .in("order_id", ids);
+
+    if (!del?.length) return orders;
+
+    const uids = [...new Set(del.map((d: any) => d.delivery_user_id))];
+    const { data: prof } = await supabase
+      .from("profiles")
+      .select("id, display_name, email")
+      .in("id", uids);
+
+    const map: Record<string, string> = {};
+    prof?.forEach(
+      (p: any) =>
+        (map[p.id] =
+          p.display_name || p.email?.split("@")[0] || "Repartidor")
+    );
+
+    const byOrder: Record<number, string> = {};
+    del.forEach((d: any) => (byOrder[d.order_id] = map[d.delivery_user_id]));
+
+    return orders.map((o) => ({
+      ...o,
+      repartidor_nombre: byOrder[o.id] ?? null,
+    }));
+  };
+
+  const cargarPedidos = async () => {
+    let q = supabase.from("orders").select("*").order("id", { ascending: false });
+
+    if (viewMode === "SHIFT") q = q.gte("creado_en", getShiftStart());
+    if (viewMode === "48H") q = q.gte("creado_en", get48h());
+    if (viewMode === "ID") {
+      const n = Number(searchId);
+      if (!searchId || Number.isNaN(n)) return setPedidos([]);
+      q = q.eq("id", n);
+    }
+
+    const { data, error } = await q;
+    if (error) return console.error(error.message);
+
+    setPedidos(await enrich(data ?? []));
+  };
+
+  const syncFudo = async (forced?: boolean) => {
+    const now = Date.now();
+    if (isSyncingRef.current) return;
+    if (!forced && last429Ref.current && now - last429Ref.current < 60000)
+      return;
+
+    try {
+      isSyncingRef.current = true;
+      setSyncingFudo(true);
+      const r = await fetch("/api/fudo/sync");
+      if (!r.ok && r.status === 429) last429Ref.current = now;
+      await cargarPedidos();
+    } finally {
+      isSyncingRef.current = false;
+      setSyncingFudo(false);
+    }
+  };
 
   useEffect(() => {
-    const init = async () => {
-      const { data } = await supabase.auth.getUser();
-      const uid = data.user?.id ?? null;
-
-      setMyUserId(uid);
-
-      if (!uid) {
-        setLoading(false);
-        return;
-      }
-
-      await fetchMyDeliveries(uid);
+    (async () => {
+      const { data } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("role", "delivery");
+      setRepartidores(data ?? []);
+      await cargarPedidos();
       setLoading(false);
-    };
+      await syncFudo(true);
+    })();
 
-    init();
-
-    const channel = supabase
-      .channel("delivery-live")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "deliveries" },
-        () => {
-          if (myUserId) fetchMyDeliveries(myUserId);
-        }
-      )
+    const ch = supabase
+      .channel("admin-live")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "orders" },
-        () => {
-          if (myUserId) fetchMyDeliveries(myUserId);
-        }
+        cargarPedidos
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "deliveries" },
+        cargarPedidos
       )
       .subscribe();
 
+    const i = setInterval(() => {
+      if (document.visibilityState === "visible") syncFudo();
+    }, 25000);
+
     return () => {
-      stopTracking();
-      supabase.removeChannel(channel);
+      supabase.removeChannel(ch);
+      clearInterval(i);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [myUserId]);
+    // eslint-disable-next-line
+  }, []);
 
-  const fetchMyDeliveries = async (uid: string) => {
-    try {
-      const { data: misAsignaciones, error: asignError } = await supabase
-        .from("deliveries")
-        .select("id, order_id, delivery_user_id")
-        .eq("delivery_user_id", uid);
+  useEffect(() => {
+    if (!loading) cargarPedidos();
+    // eslint-disable-next-line
+  }, [viewMode]);
 
-      if (asignError) console.error("Error deliveries:", asignError);
+  const asignarDelivery = async (orderId: number, deliveryUserId: string) => {
+    if (!deliveryUserId) return alert("Seleccioná un repartidor");
+    await fetch("/api/delivery/assign", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ orderId, deliveryUserId }),
+    });
+    await cargarPedidos();
+  };
 
-      if (!misAsignaciones || misAsignaciones.length === 0) {
-        setItems([]);
-        setLoading(false);
-        stopTracking();
-        return;
-      }
+  const cambiarEstado = async (id: number, estado: string) => {
+    setPedidos((p) => p.map((o) => (o.id === id ? { ...o, estado } : o)));
 
-      const orderIds = misAsignaciones.map((d) => d.order_id);
+    await supabase
+      .from("orders")
+      .update({ estado, estado_source: "APP_ADMIN" })
+      .eq("id", id);
 
-      const { data: ordenesDetalle, error: ordError } = await supabase
-        .from("orders")
-        .select("*")
-        .in("id", orderIds)
-        .in("estado", ACTIVE_STATES)
-        .order("id", { ascending: false });
-
-      if (ordError) console.error("Error orders:", ordError);
-
-      const listaFinal: DeliveryItem[] = [];
-      misAsignaciones.forEach((asignacion) => {
-        const ordenEncontrada = ordenesDetalle?.find(
-          (o) => o.id === asignacion.order_id
-        );
-        if (ordenEncontrada) {
-          listaFinal.push({
-            id: asignacion.id,
-            order_id: asignacion.order_id,
-            orders: ordenEncontrada as Order,
-          });
-        }
+    // ✅ PUSH al cliente cuando corresponde
+    if (["enviado", "entregado", "cancelado"].includes(estado)) {
+      await fetch("/api/push/notify-order-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId: id, estado }),
       });
-
-      setItems(listaFinal);
-
-      const active = listaFinal.find((d) => d.orders.estado === "enviado");
-      if (active && !isTracking) startTracking(active.id);
-      else if (!active && isTracking) stopTracking();
-    } catch (error: any) {
-      console.error("Error fetchMyDeliveries:", error);
-    } finally {
-      setLoading(false);
     }
-  };
-
-  const startTracking = (deliveryTableId: number) => {
-    if (!navigator.geolocation) {
-      setGpsError("Tu navegador no soporta GPS.");
-      return;
-    }
-    if (isTracking) return;
-
-    setIsTracking(true);
-    setGpsError(null);
-    deliveryIdActiveRef.current = deliveryTableId;
-
-    const options: PositionOptions = {
-      enableHighAccuracy: true,
-      timeout: 20000,
-      maximumAge: 0,
-    };
-
-    const id = navigator.geolocation.watchPosition(
-      async (position) => {
-        setGpsError(null);
-        const { latitude, longitude } = position.coords;
-
-        await supabase.from("delivery_locations").insert({
-          delivery_id: deliveryIdActiveRef.current,
-          lat: latitude,
-          lng: longitude,
-        });
-      },
-      (err) => {
-        console.error("Error GPS:", err);
-        const msg =
-          (err as GeolocationPositionError).message ||
-          "Problema con GPS (¿sin HTTPS?).";
-        setGpsError(`Problema con GPS: ${msg}`);
-      },
-      options
-    );
-
-    watchIdRef.current = id;
-  };
-
-  const stopTracking = () => {
-    if (watchIdRef.current !== null) {
-      navigator.geolocation.clearWatch(watchIdRef.current);
-      watchIdRef.current = null;
-    }
-    setIsTracking(false);
-    deliveryIdActiveRef.current = null;
-    setGpsError(null);
-  };
-
-  const handleComenzarViaje = async (orderId: number) => {
-    setItems((prev) =>
-      prev.map((item) =>
-        item.orders.id === orderId
-          ? { ...item, orders: { ...item.orders, estado: "enviado" } }
-          : item
-      )
-    );
-
-    await supabase
-      .from("orders")
-      .update({
-        estado: "enviado",
-        estado_source: "APP_DELIVERY",
-      })
-      .eq("id", orderId);
-
-    // ✅ PUSH al cliente: pedido enviado
-    await fetch("/api/push/notify-order-status", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ orderId, estado: "enviado" }),
-    });
-  };
-
-  const handleEntregar = async (orderId: number) => {
-    const confirmEntregar = window.confirm("¿Pedido entregado?");
-    if (!confirmEntregar) return;
-
-    setItems((prev) => prev.filter((item) => item.orders.id !== orderId));
-
-    await supabase
-      .from("orders")
-      .update({
-        estado: "entregado",
-        estado_source: "APP_DELIVERY",
-      })
-      .eq("id", orderId);
-
-    // ✅ PUSH al cliente: pedido entregado
-    await fetch("/api/push/notify-order-status", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ orderId, estado: "entregado" }),
-    });
-
-    stopTracking();
   };
 
   if (loading)
-    return <div className="p-6 text-center text-slate-500">Cargando...</div>;
+    return <div className="p-6 text-center">Conectando con la base…</div>;
 
   return (
-    <div className="p-4 pb-24 space-y-4 bg-slate-50 min-h-screen">
+    <div className="p-6 space-y-6 pb-32 max-w-7xl mx-auto">
       <div className="flex justify-between items-center">
-        <h1 className="text-xl font-bold text-slate-800">
-          🛵 Panel Repartidor
-        </h1>
-        {isTracking && (
-          <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-1 rounded border border-emerald-200 animate-pulse">
-            ● GPS ACTIVO
-          </span>
-        )}
+        <div className="flex gap-3 items-center">
+          <h1 className="text-2xl font-bold">Gestión de Pedidos</h1>
+          <button
+            onClick={() => syncFudo(true)}
+            className="text-xs px-3 py-1 rounded-full border bg-white"
+          >
+            {syncingFudo ? "Sincronizando…" : "↻ Sync Fudo"}
+          </button>
+        </div>
+        <span className="text-xs font-mono flex items-center gap-2">
+          <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+          LIVE SYNC
+        </span>
       </div>
 
-      {gpsError && (
-        <div className="bg-red-100 border border-red-300 text-red-700 p-3 rounded text-sm">
-          ⚠️ {gpsError}
+      {/* ---------- VISTAS ---------- */}
+      <div className="bg-white border rounded-xl p-3 flex flex-wrap gap-2 items-center justify-between">
+        <div className="flex gap-2 items-center">
+          <span className="text-xs font-bold uppercase text-slate-500">
+            Vista:
+          </span>
+
+          <button
+            onClick={() => setViewMode("SHIFT")}
+            className={`text-xs px-3 py-1 rounded-full border ${
+              viewMode === "SHIFT"
+                ? "bg-slate-900 text-white"
+                : "bg-white"
+            }`}
+          >
+            Turno actual (19hs a 2hs)
+          </button>
+
+          <button
+            onClick={() => setViewMode("48H")}
+            className={`text-xs px-3 py-1 rounded-full border ${
+              viewMode === "48H"
+                ? "bg-slate-900 text-white"
+                : "bg-white"
+            }`}
+          >
+            Últimas 48h
+          </button>
+
+          <button
+            onClick={() => setViewMode("ID")}
+            className={`text-xs px-3 py-1 rounded-full border ${
+              viewMode === "ID"
+                ? "bg-slate-900 text-white"
+                : "bg-white"
+            }`}
+          >
+            Buscar por ID
+          </button>
         </div>
-      )}
 
-      {items.length === 0 && (
-        <div className="text-center py-10 text-slate-400 border-2 border-dashed rounded-xl bg-white">
-          <p>😴 Sin pedidos pendientes.</p>
+        <div className="flex gap-2">
+          <input
+            value={searchId}
+            onChange={(e) => setSearchId(e.target.value)}
+            placeholder="ID pedido"
+            className="border rounded px-3 py-2 text-sm"
+          />
+          <button
+            onClick={() => cargarPedidos()}
+            className="bg-slate-900 text-white px-4 rounded text-sm"
+          >
+            Buscar
+          </button>
         </div>
-      )}
+      </div>
 
-      {items.map((item) => {
-        const order = item.orders;
-
-        return (
+      {/* ---------- LISTA ---------- */}
+      <div className="space-y-4">
+        {pedidos.map((p) => (
           <div
-            key={item.id}
-            className={`border rounded-xl shadow-sm overflow-hidden bg-white ${estadoRingClass(
-              order.estado
+            key={p.id}
+            className={`bg-white border rounded-xl p-4 border-l-4 ${estadoLeftBorder(
+              p.estado
             )}`}
           >
-            <div
-              className={`${estadoHeaderClass(
-                order.estado
-              )} text-white p-4 flex justify-between items-center`}
-            >
-              <span className="font-bold text-lg">#{order.id}</span>
-
+            <div className="flex gap-2 items-center">
+              <span className="bg-slate-800 text-white px-2 rounded text-xs">
+                #{p.id}
+              </span>
+              <strong>{p.cliente_nombre}</strong>
               <span
-                className={`text-[11px] px-2 py-1 rounded-full uppercase font-bold border ${estadoBadgeClass(
-                  order.estado
+                className={`ml-auto px-3 py-0.5 text-xs rounded-full border ${estadoBadgeClass(
+                  p.estado
                 )}`}
-                style={{ backgroundColor: "rgba(255,255,255,0.9)" }}
               >
-                {order.estado}
+                {p.estado}
               </span>
             </div>
 
-            <div className="p-4 space-y-2">
-              <p className="text-lg font-bold text-slate-800">
-                {order.cliente_nombre}
-              </p>
-              <p className="text-sm text-slate-600">
-                📍 {order.direccion_entrega}
-              </p>
+            <div className="text-sm text-slate-600 mt-1">
+              📍 {p.direccion_entrega} · 💰 ${p.monto}
+            </div>
 
-              <div className="pt-2 flex justify-between items-center">
-                <p className="text-2xl text-emerald-600 font-bold">
-                  ${order.monto}
-                </p>
-                <a
-                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-                    (order.direccion_entrega || "") +
-                      " Coronel Moldes Cordoba"
-                  )}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-700 text-xs underline"
+            <div className="flex gap-3 mt-3 justify-end">
+              <select
+                value={p.estado ?? "pendiente"}
+                onChange={(e) => cambiarEstado(p.id, e.target.value)}
+                className={`text-xs p-2 rounded border ${estadoSelectClass(
+                  p.estado
+                )}`}
+              >
+                {ESTADOS.map((s) => (
+                  <option key={s}>{s}</option>
+                ))}
+              </select>
+
+              <div className="flex gap-1">
+                <select
+                  id={`sel-${p.id}`}
+                  className="text-xs border rounded px-2"
+                  defaultValue=""
                 >
-                  Abrir Mapa
-                </a>
+                  <option value="" disabled>
+                    Repartidor…
+                  </option>
+                  {repartidores.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.display_name || r.email}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => {
+                    const s = document.getElementById(
+                      `sel-${p.id}`
+                    ) as HTMLSelectElement;
+                    asignarDelivery(p.id, s.value);
+                  }}
+                  className="bg-slate-800 text-white px-3 rounded text-xs"
+                >
+                  ASIGNAR
+                </button>
               </div>
             </div>
-
-            <div className="p-3 bg-slate-50 border-t">
-              {order.estado !== "enviado" && (
-                <button
-                  onClick={() => handleComenzarViaje(order.id)}
-                  className="w-full bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700 text-black font-extrabold py-3 rounded-lg shadow transition-transform active:scale-95"
-                >
-                  🚀 SALIR
-                </button>
-              )}
-
-              {order.estado === "enviado" && (
-                <button
-                  onClick={() => handleEntregar(order.id)}
-                  className="w-full bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-extrabold py-3 rounded-lg shadow transition-transform active:scale-95"
-                >
-                  ✅ ENTREGAR
-                </button>
-              )}
-            </div>
           </div>
-        );
-      })}
+        ))}
+      </div>
     </div>
   );
 }
