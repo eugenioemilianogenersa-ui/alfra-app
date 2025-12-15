@@ -90,15 +90,26 @@ function estadoLeftBorder(estado?: string | null) {
   }
 }
 
+// ✅ Formato compatible con "timestamp without time zone" (sin Z)
+function formatPgLocal(d: Date) {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const y = d.getFullYear();
+  const m = pad(d.getMonth() + 1);
+  const day = pad(d.getDate());
+  const hh = pad(d.getHours());
+  const mm = pad(d.getMinutes());
+  const ss = pad(d.getSeconds());
+  return `${y}-${m}-${day} ${hh}:${mm}:${ss}`;
+}
+
 /**
- * ✅ Día operativo ALFRA:
+ * ✅ Día operativo ALFRA (local):
  * - abre 19:00
  * - cierra 02:00
- *
- * Si la hora local es 00:00–01:59 => turno arrancó AYER 19:00
- * Si es >= 02:00 => turno arrancó HOY 19:00
+ * Si hora < 02:00 → arrancó AYER 19:00
+ * Si hora >= 02:00 → arrancó HOY 19:00
  */
-function getAlfraShiftStartIsoUtc(): string {
+function getAlfraShiftStartPgLocal(): string {
   const now = new Date();
   const hourLocal = now.getHours();
   const start = new Date(now);
@@ -106,13 +117,13 @@ function getAlfraShiftStartIsoUtc(): string {
   if (hourLocal < 2) start.setDate(start.getDate() - 1);
   start.setHours(19, 0, 0, 0);
 
-  return start.toISOString();
+  return formatPgLocal(start);
 }
 
-function getLast48hIsoUtc(): string {
+function getLast48hPgLocal(): string {
   const d = new Date();
   d.setHours(d.getHours() - 48);
-  return d.toISOString();
+  return formatPgLocal(d);
 }
 
 export default function AdminPedidosClient() {
@@ -123,7 +134,6 @@ export default function AdminPedidosClient() {
   const [loading, setLoading] = useState(true);
   const [syncingFudo, setSyncingFudo] = useState(false);
 
-  // ✅ nuevos controles
   const [viewMode, setViewMode] = useState<ViewMode>("SHIFT");
   const [searchId, setSearchId] = useState<string>("");
 
@@ -147,9 +157,7 @@ export default function AdminPedidosClient() {
     let repartidorPorOrderId: Record<number, string | null> = {};
 
     if (deliveriesData && deliveriesData.length > 0) {
-      const userIds = Array.from(
-        new Set(deliveriesData.map((d: any) => d.delivery_user_id))
-      );
+      const userIds = Array.from(new Set(deliveriesData.map((d: any) => d.delivery_user_id)));
 
       const { data: profilesData, error: profilesError } = await supabase
         .from("profiles")
@@ -182,9 +190,9 @@ export default function AdminPedidosClient() {
       let query = supabase.from("orders").select("*").order("id", { ascending: false });
 
       if (viewMode === "SHIFT") {
-        query = query.gte("creado_en", getAlfraShiftStartIsoUtc());
+        query = query.gte("creado_en", getAlfraShiftStartPgLocal());
       } else if (viewMode === "48H") {
-        query = query.gte("creado_en", getLast48hIsoUtc());
+        query = query.gte("creado_en", getLast48hPgLocal());
       } else if (viewMode === "ID") {
         const idNum = Number(searchId);
         if (!searchId || Number.isNaN(idNum)) {
@@ -286,7 +294,6 @@ export default function AdminPedidosClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // recarga al cambiar modo
   useEffect(() => {
     if (!loading) cargarPedidos();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -320,7 +327,9 @@ export default function AdminPedidosClient() {
   };
 
   const cambiarEstado = async (id: number, nuevoEstado: string) => {
-    setPedidos((prev) => prev.map((p) => (p.id === id ? { ...p, estado: nuevoEstado } : p)));
+    setPedidos((prev) =>
+      prev.map((p) => (p.id === id ? { ...p, estado: nuevoEstado } : p))
+    );
 
     await supabase
       .from("orders")
@@ -358,7 +367,6 @@ export default function AdminPedidosClient() {
         </div>
       </div>
 
-      {/* ✅ Barra de filtros pro */}
       <div className="bg-white border rounded-xl p-3 shadow-sm flex flex-col md:flex-row gap-3 items-start md:items-center justify-between">
         <div className="flex flex-wrap gap-2 items-center">
           <span className="text-xs font-bold text-slate-500 uppercase">Vista:</span>
@@ -366,7 +374,9 @@ export default function AdminPedidosClient() {
           <button
             onClick={() => setViewMode("SHIFT")}
             className={`text-xs px-3 py-1 rounded-full border ${
-              viewMode === "SHIFT" ? "bg-slate-900 text-white border-slate-900" : "bg-white hover:bg-slate-50"
+              viewMode === "SHIFT"
+                ? "bg-slate-900 text-white border-slate-900"
+                : "bg-white hover:bg-slate-50"
             }`}
           >
             Turno actual (19–02)
@@ -375,7 +385,9 @@ export default function AdminPedidosClient() {
           <button
             onClick={() => setViewMode("48H")}
             className={`text-xs px-3 py-1 rounded-full border ${
-              viewMode === "48H" ? "bg-slate-900 text-white border-slate-900" : "bg-white hover:bg-slate-50"
+              viewMode === "48H"
+                ? "bg-slate-900 text-white border-slate-900"
+                : "bg-white hover:bg-slate-50"
             }`}
           >
             Últimas 48h
@@ -384,7 +396,9 @@ export default function AdminPedidosClient() {
           <button
             onClick={() => setViewMode("ID")}
             className={`text-xs px-3 py-1 rounded-full border ${
-              viewMode === "ID" ? "bg-slate-900 text-white border-slate-900" : "bg-white hover:bg-slate-50"
+              viewMode === "ID"
+                ? "bg-slate-900 text-white border-slate-900"
+                : "bg-white hover:bg-slate-50"
             }`}
           >
             Buscar por ID
