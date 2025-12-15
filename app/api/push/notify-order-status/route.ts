@@ -24,10 +24,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, skipped: "estado_not_notifiable" });
     }
 
-    // 1) Buscar pedido + user_id
     const { data: order, error: oErr } = await supabaseAdmin
       .from("orders")
-      .select("id, user_id, cliente_nombre")
+      .select("id, user_id")
       .eq("id", orderId)
       .maybeSingle();
 
@@ -37,7 +36,6 @@ export async function POST(req: Request) {
 
     const userId = order.user_id as string;
 
-    // 2) Anti-duplicados (orderId+estado)
     const key = `order:${orderId}:${estado}`;
 
     const { data: already } = await supabaseAdmin
@@ -51,7 +49,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, skipped: "duplicate" });
     }
 
-    // 3) Subs activas
     const { data: subs, error: sErr } = await supabaseAdmin
       .from("push_subscriptions")
       .select("id, endpoint, p256dh, auth")
@@ -62,7 +59,6 @@ export async function POST(req: Request) {
     if (!subs || subs.length === 0)
       return NextResponse.json({ ok: true, skipped: "no_subs" });
 
-    // 4) Payload bonito
     const title = "AlFra – Pedido";
 
     const body =
@@ -74,15 +70,15 @@ export async function POST(req: Request) {
         ? "✅🍻 ¡Pedido entregado! Gracias por elegir AlFra 🙌"
         : "❌ Tu pedido fue cancelado.";
 
+    // ✅ URL REAL QUE EXISTE EN CLIENTE
     const payload = {
       title,
       body,
-      data: { url: `/cliente/pedido/${orderId}` },
+      data: { url: "/mis-pedidos" },
     };
 
     initWebPush();
 
-    // 5) Log ANTES (corta duplicados por concurrencia)
     await supabaseAdmin.from("notifications_log").insert({
       user_id: userId,
       topic: key,
@@ -92,7 +88,6 @@ export async function POST(req: Request) {
       status: "queued",
     });
 
-    // 6) Enviar + deshabilitar 410
     let sent = 0;
     let disabled = 0;
 

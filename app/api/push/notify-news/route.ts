@@ -26,17 +26,17 @@ export async function POST(req: Request) {
 
   if (!newsId) return NextResponse.json({ error: "Bad payload" }, { status: 400 });
 
-  // Buscar clientes
   const { data: clientes } = await supabaseAdmin
     .from("profiles")
-    .select("id, role")
+    .select("id")
     .eq("role", "cliente");
 
-  if (!clientes || clientes.length === 0) return NextResponse.json({ ok: true, skipped: "no_clients" });
+  if (!clientes || clientes.length === 0) {
+    return NextResponse.json({ ok: true, skipped: "no_clients" });
+  }
 
   initWebPush();
 
-  // Por cada cliente: verificar prefs.promos y mandar a sus subs
   for (const c of clientes) {
     const { data: prefs } = await supabaseAdmin
       .from("notification_preferences")
@@ -48,7 +48,7 @@ export async function POST(req: Request) {
 
     const { data: subs } = await supabaseAdmin
       .from("push_subscriptions")
-      .select("endpoint,p256dh,auth")
+      .select("id, endpoint, p256dh, auth")
       .eq("user_id", c.id)
       .eq("enabled", true);
 
@@ -57,14 +57,22 @@ export async function POST(req: Request) {
     const payload = {
       title: `📰 ${title}`,
       body: summary,
-      data: { url: `/cliente/novedades/${newsId}` },
+      data: { url: "/dashboard" }, // ✅ tu “Inicio” real
     };
 
     for (const s of subs) {
       try {
-        await sendToSubscription(s, payload);
+        await sendToSubscription(
+          { endpoint: s.endpoint, p256dh: s.p256dh, auth: s.auth },
+          payload
+        );
       } catch (e: any) {
-        // no corto
+        if (e?.statusCode === 410) {
+          await supabaseAdmin
+            .from("push_subscriptions")
+            .update({ enabled: false, updated_at: new Date().toISOString() })
+            .eq("id", s.id);
+        }
       }
     }
   }
