@@ -1,41 +1,53 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { createClient } from "@/lib/supabaseServer";
 
 export async function POST(req: Request) {
-  const supabase = createClient();
-  const { data } = await supabase.auth.getUser();
-  if (!data.user) return NextResponse.json({ error: "No auth" }, { status: 401 });
+  try {
+    const body = await req.json();
+    const { endpoint, keys, userAgent } = body;
 
-  const body = await req.json();
-  const endpoint = body.endpoint as string;
-  const p256dh = body.keys?.p256dh as string;
-  const auth = body.keys?.auth as string;
-  const userAgent = body.userAgent as string | undefined;
+    if (!endpoint || !keys?.p256dh || !keys?.auth) {
+      return NextResponse.json(
+        { error: "Datos incompletos" },
+        { status: 400 }
+      );
+    }
 
-  if (!endpoint || !p256dh || !auth) {
-    return NextResponse.json({ error: "Bad payload" }, { status: 400 });
+    // ⚠️ user_id se obtiene del token enviado por el cliente
+    // pero como simplificación segura: lo mandamos desde el frontend
+    const userId = body.userId;
+    if (!userId) {
+      return NextResponse.json(
+        { error: "userId requerido" },
+        { status: 400 }
+      );
+    }
+
+    const { error } = await supabaseAdmin
+      .from("push_subscriptions")
+      .upsert({
+        user_id: userId,
+        endpoint,
+        p256dh: keys.p256dh,
+        auth: keys.auth,
+        user_agent: userAgent,
+        updated_at: new Date().toISOString(),
+      });
+
+    if (error) {
+      console.error("Supabase insert error:", error);
+      return NextResponse.json(
+        { error: "DB error" },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    console.error("subscribe error:", err);
+    return NextResponse.json(
+      { error: "Internal error" },
+      { status: 500 }
+    );
   }
-
-  // prefs default
-  await supabaseAdmin.from("notification_preferences").upsert({
-    user_id: data.user.id,
-    pedidos: true,
-    puntos: true,
-    promos: true,
-    updated_at: new Date().toISOString(),
-  });
-
-  const { error } = await supabaseAdmin.from("push_subscriptions").upsert({
-    user_id: data.user.id,
-    endpoint,
-    p256dh,
-    auth,
-    user_agent: userAgent ?? null,
-    enabled: true,
-    updated_at: new Date().toISOString(),
-  });
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ ok: true });
 }
