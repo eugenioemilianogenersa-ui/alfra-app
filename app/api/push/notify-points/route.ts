@@ -14,7 +14,7 @@ export async function POST(req: Request) {
 
     const { data: subs, error } = await supabaseAdmin
       .from("push_subscriptions")
-      .select("endpoint,p256dh,auth,enabled")
+      .select("id,endpoint,p256dh,auth,enabled")
       .eq("user_id", userId)
       .eq("enabled", true);
 
@@ -36,7 +36,7 @@ export async function POST(req: Request) {
     };
 
     let sent = 0;
-    const failures: any[] = [];
+    let disabled = 0;
 
     for (const s of subs) {
       try {
@@ -46,17 +46,22 @@ export async function POST(req: Request) {
         );
         sent++;
       } catch (e: any) {
-        failures.push({
-          endpoint: s.endpoint?.slice(0, 40) + "...",
-          message: e?.message,
-          statusCode: e?.statusCode,
-          body: e?.body,
-        });
-        console.error("webpush error:", e?.statusCode, e?.message, e?.body);
+        const statusCode = e?.statusCode;
+
+        // ✅ 410 = suscripción muerta → la deshabilitamos
+        if (statusCode === 410) {
+          await supabaseAdmin
+            .from("push_subscriptions")
+            .update({ enabled: false, updated_at: new Date().toISOString() })
+            .eq("id", s.id);
+          disabled++;
+        }
+
+        console.error("webpush error:", statusCode, e?.message, e?.body);
       }
     }
 
-    return NextResponse.json({ ok: true, sent, failures });
+    return NextResponse.json({ ok: true, sent, disabled });
   } catch (err) {
     console.error("notify-points fatal:", err);
     return NextResponse.json({ error: "Internal error" }, { status: 500 });
