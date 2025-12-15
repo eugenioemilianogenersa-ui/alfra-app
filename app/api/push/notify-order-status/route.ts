@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { initWebPush, sendToSubscription } from "@/lib/pushServer";
 
-const NOTIFIABLE = new Set(["enviado", "entregado", "cancelado"]);
+const NOTIFIABLE = new Set(["listo para entregar", "enviado", "entregado", "cancelado"]);
 
 export async function POST(req: Request) {
   try {
@@ -60,11 +60,13 @@ export async function POST(req: Request) {
     // 4) Payload
     const title = "AlFra – Pedido";
     const body =
-      estado === "enviado"
-        ? "Tu pedido salió para tu casa 🚀"
-        : estado === "entregado"
-        ? "Tu pedido fue entregado ✅"
-        : "Tu pedido fue cancelado ❌";
+  estado === "listo para entregar"
+    ? "📦✨ ¡Tu pedido ya está listo para entregar! En breve sale 🚀"
+    : estado === "enviado"
+    ? "🛵💨 ¡Tu pedido salió para entrega! Ya va en camino 🍺"
+    : estado === "entregado"
+    ? "✅🍻 ¡Pedido entregado! Gracias por elegir AlFra 🙌"
+    : "❌ Tu pedido fue cancelado.";
 
     const payload = {
       title,
