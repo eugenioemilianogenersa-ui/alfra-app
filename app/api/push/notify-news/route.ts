@@ -1,30 +1,32 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { createRouteClient } from "@/lib/supabaseRoute";
 import { initWebPush, sendToSubscription } from "@/lib/pushServer";
 
 export async function POST(req: Request) {
   try {
-    // ✅ Solo admin (auth correcta en Route Handler)
-    const supabase = createRouteClient();
-    const { data: auth, error: authErr } = await supabase.auth.getUser();
+    // ✅ Auth via Bearer token (NO cookies)
+    const authHeader = req.headers.get("authorization") || "";
+    const token = authHeader.startsWith("Bearer ")
+      ? authHeader.slice("Bearer ".length).trim()
+      : null;
 
-    if (authErr) {
-      return NextResponse.json({ error: authErr.message }, { status: 401 });
-    }
-    if (!auth?.user) {
-      return NextResponse.json({ error: "No auth" }, { status: 401 });
+    if (!token) {
+      return NextResponse.json({ error: "Missing Bearer token" }, { status: 401 });
     }
 
+    const { data: userData, error: userErr } = await supabaseAdmin.auth.getUser(token);
+    if (userErr || !userData?.user) {
+      return NextResponse.json({ error: "Invalid token" }, { status: 401 });
+    }
+
+    // ✅ Solo admin
     const { data: prof, error: profErr } = await supabaseAdmin
       .from("profiles")
       .select("role")
-      .eq("id", auth.user.id)
+      .eq("id", userData.user.id)
       .maybeSingle();
 
-    if (profErr) {
-      return NextResponse.json({ error: profErr.message }, { status: 500 });
-    }
+    if (profErr) return NextResponse.json({ error: profErr.message }, { status: 500 });
     if (prof?.role !== "admin") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -34,11 +36,9 @@ export async function POST(req: Request) {
     const title = (body.title as string) || "Novedad AlFra";
     const summary = (body.summary as string) || "Entrá a ver la novedad.";
 
-    if (!newsId) {
-      return NextResponse.json({ error: "Bad payload" }, { status: 400 });
-    }
+    if (!newsId) return NextResponse.json({ error: "Bad payload" }, { status: 400 });
 
-    // ✅ SOLO clientes
+    // ✅ Solo clientes
     const { data: clientes, error: cErr } = await supabaseAdmin
       .from("profiles")
       .select("id")
@@ -54,7 +54,7 @@ export async function POST(req: Request) {
     const payload = {
       title: `📰 ${title}`,
       body: summary,
-      data: { url: "/dashboard" }, // ✅ Inicio real
+      data: { url: "/dashboard" }, // ✅ tu inicio real
     };
 
     let sent = 0;
