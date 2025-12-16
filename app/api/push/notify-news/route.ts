@@ -1,23 +1,30 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { createClient } from "@/lib/supabaseServer";
+import { createRouteClient } from "@/lib/supabaseRoute";
 import { initWebPush, sendToSubscription } from "@/lib/pushServer";
 
 export async function POST(req: Request) {
   try {
-    // ✅ Solo admin (con sesión/cookies)
-    const supabase = createClient();
-    const { data } = await supabase.auth.getUser();
-    if (!data.user) {
+    // ✅ Solo admin (auth correcta en Route Handler)
+    const supabase = createRouteClient();
+    const { data: auth, error: authErr } = await supabase.auth.getUser();
+
+    if (authErr) {
+      return NextResponse.json({ error: authErr.message }, { status: 401 });
+    }
+    if (!auth?.user) {
       return NextResponse.json({ error: "No auth" }, { status: 401 });
     }
 
-    const { data: prof } = await supabaseAdmin
+    const { data: prof, error: profErr } = await supabaseAdmin
       .from("profiles")
       .select("role")
-      .eq("id", data.user.id)
+      .eq("id", auth.user.id)
       .maybeSingle();
 
+    if (profErr) {
+      return NextResponse.json({ error: profErr.message }, { status: 500 });
+    }
     if (prof?.role !== "admin") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -31,16 +38,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Bad payload" }, { status: 400 });
     }
 
-    // ✅ Clientes
+    // ✅ SOLO clientes
     const { data: clientes, error: cErr } = await supabaseAdmin
       .from("profiles")
       .select("id")
       .eq("role", "cliente");
 
-    if (cErr) {
-      return NextResponse.json({ error: cErr.message }, { status: 500 });
-    }
-
+    if (cErr) return NextResponse.json({ error: cErr.message }, { status: 500 });
     if (!clientes || clientes.length === 0) {
       return NextResponse.json({ ok: true, skipped: "no_clients" });
     }
@@ -50,17 +54,14 @@ export async function POST(req: Request) {
     const payload = {
       title: `📰 ${title}`,
       body: summary,
-      data: { url: "/dashboard" }, // ✅ Inicio real del cliente
+      data: { url: "/dashboard" }, // ✅ Inicio real
     };
 
-    let clientsTotal = clientes.length;
-    let clientsNotified = 0;
-    let subsFound = 0;
     let sent = 0;
     let disabled = 0;
+    let clientsNotified = 0;
 
     for (const c of clientes) {
-      // prefs opcional (si no existe, manda igual)
       const { data: prefs } = await supabaseAdmin
         .from("notification_preferences")
         .select("promos")
@@ -69,17 +70,15 @@ export async function POST(req: Request) {
 
       if (prefs && prefs.promos === false) continue;
 
-      const { data: subs, error: sErr } = await supabaseAdmin
+      const { data: subs } = await supabaseAdmin
         .from("push_subscriptions")
         .select("id, endpoint, p256dh, auth")
         .eq("user_id", c.id)
         .eq("enabled", true);
 
-      if (sErr) continue;
       if (!subs || subs.length === 0) continue;
 
       clientsNotified++;
-      subsFound += subs.length;
 
       for (const s of subs) {
         try {
@@ -100,24 +99,9 @@ export async function POST(req: Request) {
       }
     }
 
-    console.log("[notify-news]", {
-      newsId,
-      clientsTotal,
-      clientsNotified,
-      subsFound,
-      sent,
-      disabled,
-    });
+    console.log("[notify-news]", { newsId, sent, disabled, clientsNotified });
 
-    return NextResponse.json({
-      ok: true,
-      newsId,
-      clientsTotal,
-      clientsNotified,
-      subsFound,
-      sent,
-      disabled,
-    });
+    return NextResponse.json({ ok: true, newsId, sent, disabled, clientsNotified });
   } catch (e: any) {
     return NextResponse.json(
       { error: e?.message || "Internal error" },
