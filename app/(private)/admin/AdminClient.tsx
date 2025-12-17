@@ -75,7 +75,7 @@ export default function AdminClient() {
       <div className="bg-slate-900 text-white p-8 rounded-2xl text-center shadow-lg">
         <h3 className="text-xl font-bold mb-2">🚀 Sistema Operativo</h3>
         <p className="text-slate-400">
-          Integración con Fudo: <span className="text-emerald-400 font-bold">LISTA</span> (Esperando activación)
+          Integración con Fudo: <span className="text-emerald-400 font-bold">LISTA</span>
         </p>
       </div>
     </div>
