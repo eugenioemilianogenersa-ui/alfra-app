@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { initWebPush, sendToSubscription } from "@/lib/pushServer";
 
 const NOTIFIABLE = new Set([
+  "en preparación",        // ✅ NUEVO (solo lo vamos a llamar desde FUDO)
   "listo para entregar",
   "enviado",
   "entregado",
@@ -31,11 +32,13 @@ export async function POST(req: Request) {
       .maybeSingle();
 
     if (oErr) return NextResponse.json({ error: oErr.message }, { status: 500 });
-    if (!order?.user_id)
+    if (!order?.user_id) {
       return NextResponse.json({ ok: true, skipped: "no_user_id" });
+    }
 
     const userId = order.user_id as string;
 
+    // dedupe
     const key = `order:${orderId}:${estado}`;
 
     const { data: already } = await supabaseAdmin
@@ -56,13 +59,16 @@ export async function POST(req: Request) {
       .eq("enabled", true);
 
     if (sErr) return NextResponse.json({ error: sErr.message }, { status: 500 });
-    if (!subs || subs.length === 0)
+    if (!subs || subs.length === 0) {
       return NextResponse.json({ ok: true, skipped: "no_subs" });
+    }
 
     const title = "AlFra – Pedido";
 
     const body =
-      estado === "listo para entregar"
+      estado === "en preparación"
+        ? "🍳 Tu pedido ya ingresó a cocina. ¡Lo estamos preparando!"
+        : estado === "listo para entregar"
         ? "📦✨ ¡Tu pedido ya está listo! En breve sale 🚀"
         : estado === "enviado"
         ? "🛵💨 ¡Tu pedido salió para entrega! Ya va en camino 🍺"
@@ -70,7 +76,6 @@ export async function POST(req: Request) {
         ? "✅🍻 ¡Pedido entregado! Gracias por elegir AlFra 🙌"
         : "❌ Tu pedido fue cancelado.";
 
-    // ✅ URL REAL QUE EXISTE EN CLIENTE
     const payload = {
       title,
       body,
