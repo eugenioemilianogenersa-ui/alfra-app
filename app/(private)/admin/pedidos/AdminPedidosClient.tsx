@@ -107,23 +107,30 @@ export default function AdminPedidosClient() {
       .select("order_id, delivery_user_id")
       .in("order_id", ids);
 
-    if (!del?.length) return orders;
+    if (!del?.length) {
+      return orders.map((o) => ({ ...o, repartidor_nombre: null }));
+    }
 
-    const uids = [...new Set(del.map((d: any) => d.delivery_user_id))];
+    const uids = [...new Set(del.map((d: any) => d.delivery_user_id))].filter(
+      Boolean
+    );
+
     const { data: prof } = await supabase
       .from("profiles")
       .select("id, display_name, email")
-      .in("id", uids);
+      .in("id", uids as string[]);
 
     const map: Record<string, string> = {};
-    prof?.forEach(
-      (p: any) =>
-        (map[p.id] =
-          p.display_name || p.email?.split("@")[0] || "Repartidor")
-    );
+    prof?.forEach((p: any) => {
+      map[p.id] = p.display_name || p.email?.split("@")[0] || "Repartidor";
+    });
 
     const byOrder: Record<number, string> = {};
-    del.forEach((d: any) => (byOrder[d.order_id] = map[d.delivery_user_id]));
+    del.forEach((d: any) => {
+      if (d?.order_id && d?.delivery_user_id) {
+        byOrder[d.order_id] = map[d.delivery_user_id] || "Repartidor";
+      }
+    });
 
     return orders.map((o) => ({
       ...o,
@@ -145,14 +152,13 @@ export default function AdminPedidosClient() {
     const { data, error } = await q;
     if (error) return console.error(error.message);
 
-    setPedidos(await enrich(data ?? []));
+    setPedidos((await enrich(data ?? [])) as Order[]);
   };
 
   const syncFudo = async (forced?: boolean) => {
     const now = Date.now();
     if (isSyncingRef.current) return;
-    if (!forced && last429Ref.current && now - last429Ref.current < 60000)
-      return;
+    if (!forced && last429Ref.current && now - last429Ref.current < 60000) return;
 
     try {
       isSyncingRef.current = true;
@@ -180,16 +186,8 @@ export default function AdminPedidosClient() {
 
     const ch = supabase
       .channel("admin-live")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "orders" },
-        cargarPedidos
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "deliveries" },
-        cargarPedidos
-      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, cargarPedidos)
+      .on("postgres_changes", { event: "*", schema: "public", table: "deliveries" }, cargarPedidos)
       .subscribe();
 
     const i = setInterval(() => {
@@ -221,12 +219,8 @@ export default function AdminPedidosClient() {
   const cambiarEstado = async (id: number, estado: string) => {
     setPedidos((p) => p.map((o) => (o.id === id ? { ...o, estado } : o)));
 
-    await supabase
-      .from("orders")
-      .update({ estado, estado_source: "APP_ADMIN" })
-      .eq("id", id);
+    await supabase.from("orders").update({ estado, estado_source: "APP_ADMIN" }).eq("id", id);
 
-    // ✅ PUSH al cliente cuando corresponde
     if (["enviado", "entregado", "cancelado"].includes(estado)) {
       await fetch("/api/push/notify-order-status", {
         method: "POST",
@@ -236,18 +230,14 @@ export default function AdminPedidosClient() {
     }
   };
 
-  if (loading)
-    return <div className="p-6 text-center">Conectando con la base…</div>;
+  if (loading) return <div className="p-6 text-center">Conectando con la base…</div>;
 
   return (
     <div className="p-6 space-y-6 pb-32 max-w-7xl mx-auto">
       <div className="flex justify-between items-center">
         <div className="flex gap-3 items-center">
           <h1 className="text-2xl font-bold">Gestión de Pedidos</h1>
-          <button
-            onClick={() => syncFudo(true)}
-            className="text-xs px-3 py-1 rounded-full border bg-white"
-          >
+          <button onClick={() => syncFudo(true)} className="text-xs px-3 py-1 rounded-full border bg-white">
             {syncingFudo ? "Sincronizando…" : "↻ Sync Fudo"}
           </button>
         </div>
@@ -260,16 +250,12 @@ export default function AdminPedidosClient() {
       {/* ---------- VISTAS ---------- */}
       <div className="bg-white border rounded-xl p-3 flex flex-wrap gap-2 items-center justify-between">
         <div className="flex gap-2 items-center">
-          <span className="text-xs font-bold uppercase text-slate-500">
-            Vista:
-          </span>
+          <span className="text-xs font-bold uppercase text-slate-500">Vista:</span>
 
           <button
             onClick={() => setViewMode("SHIFT")}
             className={`text-xs px-3 py-1 rounded-full border ${
-              viewMode === "SHIFT"
-                ? "bg-slate-900 text-white"
-                : "bg-white"
+              viewMode === "SHIFT" ? "bg-slate-900 text-white" : "bg-white"
             }`}
           >
             Turno actual (19hs a 2hs)
@@ -278,9 +264,7 @@ export default function AdminPedidosClient() {
           <button
             onClick={() => setViewMode("48H")}
             className={`text-xs px-3 py-1 rounded-full border ${
-              viewMode === "48H"
-                ? "bg-slate-900 text-white"
-                : "bg-white"
+              viewMode === "48H" ? "bg-slate-900 text-white" : "bg-white"
             }`}
           >
             Últimas 48h
@@ -289,9 +273,7 @@ export default function AdminPedidosClient() {
           <button
             onClick={() => setViewMode("ID")}
             className={`text-xs px-3 py-1 rounded-full border ${
-              viewMode === "ID"
-                ? "bg-slate-900 text-white"
-                : "bg-white"
+              viewMode === "ID" ? "bg-slate-900 text-white" : "bg-white"
             }`}
           >
             Buscar por ID
@@ -305,10 +287,7 @@ export default function AdminPedidosClient() {
             placeholder="ID pedido"
             className="border rounded px-3 py-2 text-sm"
           />
-          <button
-            onClick={() => cargarPedidos()}
-            className="bg-slate-900 text-white px-4 rounded text-sm"
-          >
+          <button onClick={() => cargarPedidos()} className="bg-slate-900 text-white px-4 rounded text-sm">
             Buscar
           </button>
         </div>
@@ -319,19 +298,13 @@ export default function AdminPedidosClient() {
         {pedidos.map((p) => (
           <div
             key={p.id}
-            className={`bg-white border rounded-xl p-4 border-l-4 ${estadoLeftBorder(
-              p.estado
-            )}`}
+            className={`bg-white border rounded-xl p-4 border-l-4 ${estadoLeftBorder(p.estado)}`}
           >
             <div className="flex gap-2 items-center">
-              <span className="bg-slate-800 text-white px-2 rounded text-xs">
-                #{p.id}
-              </span>
+              <span className="bg-slate-800 text-white px-2 rounded text-xs">#{p.id}</span>
               <strong>{p.cliente_nombre}</strong>
               <span
-                className={`ml-auto px-3 py-0.5 text-xs rounded-full border ${estadoBadgeClass(
-                  p.estado
-                )}`}
+                className={`ml-auto px-3 py-0.5 text-xs rounded-full border ${estadoBadgeClass(p.estado)}`}
               >
                 {p.estado}
               </span>
@@ -341,13 +314,19 @@ export default function AdminPedidosClient() {
               📍 {p.direccion_entrega} · 💰 ${p.monto}
             </div>
 
+            {/* ✅ MOSTRAR REPARTIDOR */}
+            <div className="text-sm text-slate-700 mt-1 font-semibold">
+              🛵 Repartidor:{" "}
+              <span className="font-bold">
+                {p.repartidor_nombre ? p.repartidor_nombre : "Sin asignar"}
+              </span>
+            </div>
+
             <div className="flex gap-3 mt-3 justify-end">
               <select
                 value={p.estado ?? "pendiente"}
                 onChange={(e) => cambiarEstado(p.id, e.target.value)}
-                className={`text-xs p-2 rounded border ${estadoSelectClass(
-                  p.estado
-                )}`}
+                className={`text-xs p-2 rounded border ${estadoSelectClass(p.estado)}`}
               >
                 {ESTADOS.map((s) => (
                   <option key={s}>{s}</option>
@@ -355,11 +334,7 @@ export default function AdminPedidosClient() {
               </select>
 
               <div className="flex gap-1">
-                <select
-                  id={`sel-${p.id}`}
-                  className="text-xs border rounded px-2"
-                  defaultValue=""
-                >
+                <select id={`sel-${p.id}`} className="text-xs border rounded px-2" defaultValue="">
                   <option value="" disabled>
                     Repartidor…
                   </option>
@@ -371,9 +346,7 @@ export default function AdminPedidosClient() {
                 </select>
                 <button
                   onClick={() => {
-                    const s = document.getElementById(
-                      `sel-${p.id}`
-                    ) as HTMLSelectElement;
+                    const s = document.getElementById(`sel-${p.id}`) as HTMLSelectElement;
                     asignarDelivery(p.id, s.value);
                   }}
                   className="bg-slate-800 text-white px-3 rounded text-xs"

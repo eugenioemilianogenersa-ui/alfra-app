@@ -20,6 +20,7 @@ type Order = {
   monto: number | null;
   estado: string | null;
   creado_en: string;
+  repartidor_nombre?: string | null; // ✅ NUEVO
 };
 
 type DeliveryLocation = {
@@ -81,6 +82,56 @@ export default function MisPedidosClient() {
   const userIdRef = useRef<string | null>(null);
   const pollRef = useRef<number | null>(null);
 
+  // ✅ Enriquecer orders con nombre de repartidor (deliveries -> profiles)
+  const enrichWithDeliveryName = async (rows: any[]): Promise<Order[]> => {
+    if (!rows?.length) return [];
+
+    const orderIds = rows.map((o) => o.id);
+
+    const { data: del, error: dErr } = await supabase
+      .from("deliveries")
+      .select("order_id, delivery_user_id")
+      .in("order_id", orderIds);
+
+    if (dErr) {
+      console.error("Error deliveries:", dErr.message);
+      return rows as Order[];
+    }
+
+    if (!del?.length) {
+      return rows.map((o) => ({ ...(o as Order), repartidor_nombre: null }));
+    }
+
+    const uids = [...new Set(del.map((d: any) => d.delivery_user_id))].filter(Boolean);
+
+    const { data: prof, error: pErr } = await supabase
+      .from("profiles")
+      .select("id, display_name, email")
+      .in("id", uids as string[]);
+
+    if (pErr) {
+      console.error("Error profiles:", pErr.message);
+      return rows as Order[];
+    }
+
+    const nameByUser: Record<string, string> = {};
+    prof?.forEach((p: any) => {
+      nameByUser[p.id] = p.display_name || p.email?.split("@")[0] || "Repartidor";
+    });
+
+    const nameByOrder: Record<number, string> = {};
+    del.forEach((d: any) => {
+      if (d?.order_id && d?.delivery_user_id) {
+        nameByOrder[d.order_id] = nameByUser[d.delivery_user_id] || "Repartidor";
+      }
+    });
+
+    return rows.map((o) => ({
+      ...(o as Order),
+      repartidor_nombre: nameByOrder[o.id] ?? null,
+    }));
+  };
+
   const loadOrders = async (uid: string) => {
     const { data, error } = await supabase
       .from("orders")
@@ -93,7 +144,9 @@ export default function MisPedidosClient() {
       console.error("Error cargando orders:", error.message);
       return;
     }
-    setOrders((data as Order[]) ?? []);
+
+    const enriched = await enrichWithDeliveryName((data as any[]) ?? []);
+    setOrders(enriched);
   };
 
   const refreshActiveDelivery = async (uid: string) => {
@@ -247,16 +300,12 @@ export default function MisPedidosClient() {
       {orders.map((o) => (
         <div
           key={o.id}
-          className={`bg-white border rounded-xl shadow-sm overflow-hidden border-l-4 ${estadoLeftBorder(
-            o.estado
-          )}`}
+          className={`bg-white border rounded-xl shadow-sm overflow-hidden border-l-4 ${estadoLeftBorder(o.estado)}`}
         >
           <div className="p-4 border-b bg-slate-50 flex justify-between items-center">
             <div>
               <h2 className="font-bold text-lg text-slate-800">Pedido #{o.id}</h2>
-              <p className="text-xs text-slate-400">
-                {new Date(o.creado_en).toLocaleDateString("es-AR")}
-              </p>
+              <p className="text-xs text-slate-400">{new Date(o.creado_en).toLocaleDateString("es-AR")}</p>
             </div>
 
             <span
@@ -272,6 +321,11 @@ export default function MisPedidosClient() {
             {o.cliente_nombre && <p className="font-semibold text-slate-700">👤 {o.cliente_nombre}</p>}
             <p>📍 {o.direccion_entrega}</p>
             <p className="font-bold text-emerald-600">💰 Total: ${o.monto}</p>
+
+            {/* ✅ MOSTRAR DELIVERY */}
+            {o.repartidor_nombre && (
+              <p className="font-semibold text-slate-700">🛵 Delivery: {o.repartidor_nombre}</p>
+            )}
           </div>
 
           {o.estado === "enviado" && tracking && (
