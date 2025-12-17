@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export async function POST(req: Request) {
   try {
+    // ✅ Auth via Bearer token (NO cookies)
     const authHeader = req.headers.get("authorization") || "";
     const token = authHeader.startsWith("Bearer ")
       ? authHeader.slice("Bearer ".length).trim()
@@ -17,6 +18,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid token" }, { status: 401 });
     }
 
+    const userId = userData.user.id;
+
     const body = await req.json();
     const { endpoint, keys, userAgent } = body;
 
@@ -24,8 +27,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Datos incompletos" }, { status: 400 });
     }
 
-    const userId = userData.user.id;
-
+    // ✅ Upsert por endpoint (evita que un mismo device quede pegado a otro user)
     const { error } = await supabaseAdmin
       .from("push_subscriptions")
       .upsert(
@@ -38,8 +40,7 @@ export async function POST(req: Request) {
           enabled: true,
           updated_at: new Date().toISOString(),
         },
-        // IMPORTANT: si no tenés unique(user_id, endpoint) igual funciona, pero mejor lo agregamos (te dejo SQL abajo)
-        { onConflict: "user_id,endpoint" as any }
+        { onConflict: "endpoint" } // 👈 requiere índice único (SQL abajo)
       );
 
     if (error) {

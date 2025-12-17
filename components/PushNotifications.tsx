@@ -17,20 +17,21 @@ export default function PushNotifications() {
 
     (async () => {
       try {
+        // ✅ Tomamos el token real de sesión
         const { data } = await supabase.auth.getSession();
         const session = data?.session;
         if (!session?.access_token) return;
 
-        // Registrar SW
+        // 1) Registrar SW
         const reg = await navigator.serviceWorker.register("/sw.js");
 
-        // Permiso
+        // 2) Pedir permiso
         if (Notification.permission === "default") {
           await Notification.requestPermission();
         }
         if (Notification.permission !== "granted") return;
 
-        // Subscribir
+        // 3) Subscribir
         const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
         if (!vapidPublicKey) return;
 
@@ -39,7 +40,7 @@ export default function PushNotifications() {
           applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
         });
 
-        // Guardar subscription (backend resuelve user_id por token)
+        // 4) Guardar subscription (backend decide user_id)
         await fetch("/api/push/subscribe", {
           method: "POST",
           headers: {
