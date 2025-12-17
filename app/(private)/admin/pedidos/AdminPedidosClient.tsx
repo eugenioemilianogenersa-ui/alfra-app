@@ -111,9 +111,7 @@ export default function AdminPedidosClient() {
       return orders.map((o) => ({ ...o, repartidor_nombre: null }));
     }
 
-    const uids = [...new Set(del.map((d: any) => d.delivery_user_id))].filter(
-      Boolean
-    );
+    const uids = [...new Set(del.map((d: any) => d.delivery_user_id))].filter(Boolean);
 
     const { data: prof } = await supabase
       .from("profiles")
@@ -174,10 +172,7 @@ export default function AdminPedidosClient() {
 
   useEffect(() => {
     (async () => {
-      const { data } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("role", "delivery");
+      const { data } = await supabase.from("profiles").select("*").eq("role", "delivery");
       setRepartidores(data ?? []);
       await cargarPedidos();
       setLoading(false);
@@ -216,17 +211,37 @@ export default function AdminPedidosClient() {
     await cargarPedidos();
   };
 
+  const updateOrderStatusViaApi = async (orderId: number, estado: string) => {
+    const r = await fetch("/api/orders/update-status", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ orderId, estado, source: "APP_ADMIN" }),
+    });
+
+    if (!r.ok) {
+      const txt = await r.text().catch(() => "");
+      throw new Error(`update-status failed ${r.status} ${txt}`);
+    }
+  };
+
   const cambiarEstado = async (id: number, estado: string) => {
+    // optimistic
     setPedidos((p) => p.map((o) => (o.id === id ? { ...o, estado } : o)));
 
-    await supabase.from("orders").update({ estado, estado_source: "APP_ADMIN" }).eq("id", id);
+    try {
+      await updateOrderStatusViaApi(id, estado);
 
-    if (["enviado", "entregado", "cancelado"].includes(estado)) {
-      await fetch("/api/push/notify-order-status", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderId: id, estado }),
-      });
+      if (["enviado", "entregado", "cancelado"].includes(estado)) {
+        await fetch("/api/push/notify-order-status", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ orderId: id, estado }),
+        });
+      }
+    } catch (e: any) {
+      console.error(e?.message || e);
+      await cargarPedidos(); // rollback
+      alert("No se pudo cambiar el estado. Reintentá.");
     }
   };
 
@@ -237,7 +252,10 @@ export default function AdminPedidosClient() {
       <div className="flex justify-between items-center">
         <div className="flex gap-3 items-center">
           <h1 className="text-2xl font-bold">Gestión de Pedidos</h1>
-          <button onClick={() => syncFudo(true)} className="text-xs px-3 py-1 rounded-full border bg-white">
+          <button
+            onClick={() => syncFudo(true)}
+            className="text-xs px-3 py-1 rounded-full border bg-white"
+          >
             {syncingFudo ? "Sincronizando…" : "↻ Sync Fudo"}
           </button>
         </div>
@@ -303,9 +321,7 @@ export default function AdminPedidosClient() {
             <div className="flex gap-2 items-center">
               <span className="bg-slate-800 text-white px-2 rounded text-xs">#{p.id}</span>
               <strong>{p.cliente_nombre}</strong>
-              <span
-                className={`ml-auto px-3 py-0.5 text-xs rounded-full border ${estadoBadgeClass(p.estado)}`}
-              >
+              <span className={`ml-auto px-3 py-0.5 text-xs rounded-full border ${estadoBadgeClass(p.estado)}`}>
                 {p.estado}
               </span>
             </div>
@@ -317,9 +333,7 @@ export default function AdminPedidosClient() {
             {/* ✅ MOSTRAR REPARTIDOR */}
             <div className="text-sm text-slate-700 mt-1 font-semibold">
               🛵 Repartidor:{" "}
-              <span className="font-bold">
-                {p.repartidor_nombre ? p.repartidor_nombre : "Sin asignar"}
-              </span>
+              <span className="font-bold">{p.repartidor_nombre ? p.repartidor_nombre : "Sin asignar"}</span>
             </div>
 
             <div className="flex gap-3 mt-3 justify-end">
