@@ -173,15 +173,19 @@ export default function DeliveryClient() {
   };
 
   const startTracking = (deliveryTableId: number) => {
+    if (!deliveryTableId) {
+      console.error("❌ startTracking sin delivery_id");
+      return;
+    }
     if (!navigator.geolocation) {
       setGpsError("Tu navegador no soporta GPS.");
       return;
     }
     if (isTracking) return;
 
+    deliveryIdActiveRef.current = deliveryTableId;
     setIsTracking(true);
     setGpsError(null);
-    deliveryIdActiveRef.current = deliveryTableId;
 
     const options: PositionOptions = {
       enableHighAccuracy: true,
@@ -194,8 +198,14 @@ export default function DeliveryClient() {
         setGpsError(null);
         const { latitude, longitude } = position.coords;
 
+        const did = deliveryIdActiveRef.current;
+        if (!did) {
+          console.error("❌ GPS tick sin delivery_id");
+          return;
+        }
+
         await supabase.from("delivery_locations").insert({
-          delivery_id: deliveryIdActiveRef.current,
+          delivery_id: did,
           lat: latitude,
           lng: longitude,
         });
@@ -223,10 +233,20 @@ export default function DeliveryClient() {
   };
 
   const updateOrderStatusViaApi = async (orderId: number, estado: string) => {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+
+    if (!accessToken) throw new Error("No access token");
+
     const r = await fetch("/api/orders/update-status", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ orderId, estado, source: "APP_DELIVERY" }),
+      body: JSON.stringify({
+        orderId,
+        estado,
+        source: "APP_DELIVERY",
+        accessToken,
+      }),
     });
 
     if (!r.ok) {
@@ -236,7 +256,6 @@ export default function DeliveryClient() {
   };
 
   const handleComenzarViaje = async (orderId: number) => {
-    // Optimistic UI
     setItems((prev) =>
       prev.map((item) =>
         item.orders.id === orderId ? { ...item, orders: { ...item.orders, estado: "enviado" } } : item
@@ -246,7 +265,6 @@ export default function DeliveryClient() {
     try {
       await updateOrderStatusViaApi(orderId, "enviado");
 
-      // ✅ PUSH al cliente: pedido enviado
       await fetch("/api/push/notify-order-status", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -254,7 +272,6 @@ export default function DeliveryClient() {
       });
     } catch (e: any) {
       console.error(e?.message || e);
-      // rollback UI (refetch)
       if (myUserId) await fetchMyDeliveries(myUserId);
       alert("No se pudo marcar como ENVIADO. Reintentá.");
     }
@@ -264,13 +281,11 @@ export default function DeliveryClient() {
     const confirmEntregar = window.confirm("¿Pedido entregado?");
     if (!confirmEntregar) return;
 
-    // Optimistic UI
     setItems((prev) => prev.filter((item) => item.orders.id !== orderId));
 
     try {
       await updateOrderStatusViaApi(orderId, "entregado");
 
-      // ✅ PUSH al cliente: pedido entregado
       await fetch("/api/push/notify-order-status", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -280,7 +295,6 @@ export default function DeliveryClient() {
       stopTracking();
     } catch (e: any) {
       console.error(e?.message || e);
-      // rollback UI (refetch)
       if (myUserId) await fetchMyDeliveries(myUserId);
       alert("No se pudo marcar como ENTREGADO. Reintentá.");
     }
@@ -319,9 +333,7 @@ export default function DeliveryClient() {
             key={item.id}
             className={`border rounded-xl shadow-sm overflow-hidden bg-white ${estadoRingClass(order.estado)}`}
           >
-            <div
-              className={`${estadoHeaderClass(order.estado)} text-white p-4 flex justify-between items-center`}
-            >
+            <div className={`${estadoHeaderClass(order.estado)} text-white p-4 flex justify-between items-center`}>
               <span className="font-bold text-lg">#{order.id}</span>
 
               <span

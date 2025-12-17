@@ -23,14 +23,7 @@ type Profile = {
 
 type ViewMode = "SHIFT" | "48H" | "ID";
 
-const ESTADOS = [
-  "pendiente",
-  "en preparación",
-  "listo para entregar",
-  "enviado",
-  "entregado",
-  "cancelado",
-];
+const ESTADOS = ["pendiente", "en preparación", "listo para entregar", "enviado", "entregado", "cancelado"];
 
 // ---------- helpers UI ----------
 const estadoBadgeClass = (e?: string | null) =>
@@ -66,9 +59,9 @@ const estadoLeftBorder = (e?: string | null) =>
 // ---------- fechas (timestamp without time zone) ----------
 const pad = (n: number) => String(n).padStart(2, "0");
 const pgLocal = (d: Date) =>
-  `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(
-    d.getHours()
-  )}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(
+    d.getMinutes()
+  )}:${pad(d.getSeconds())}`;
 
 const getShiftStart = () => {
   const now = new Date();
@@ -102,21 +95,13 @@ export default function AdminPedidosClient() {
     if (!orders.length) return [];
     const ids = orders.map((o) => o.id);
 
-    const { data: del } = await supabase
-      .from("deliveries")
-      .select("order_id, delivery_user_id")
-      .in("order_id", ids);
+    const { data: del } = await supabase.from("deliveries").select("order_id, delivery_user_id").in("order_id", ids);
 
-    if (!del?.length) {
-      return orders.map((o) => ({ ...o, repartidor_nombre: null }));
-    }
+    if (!del?.length) return orders.map((o) => ({ ...o, repartidor_nombre: null }));
 
     const uids = [...new Set(del.map((d: any) => d.delivery_user_id))].filter(Boolean);
 
-    const { data: prof } = await supabase
-      .from("profiles")
-      .select("id, display_name, email")
-      .in("id", uids as string[]);
+    const { data: prof } = await supabase.from("profiles").select("id, display_name, email").in("id", uids as string[]);
 
     const map: Record<string, string> = {};
     prof?.forEach((p: any) => {
@@ -125,15 +110,10 @@ export default function AdminPedidosClient() {
 
     const byOrder: Record<number, string> = {};
     del.forEach((d: any) => {
-      if (d?.order_id && d?.delivery_user_id) {
-        byOrder[d.order_id] = map[d.delivery_user_id] || "Repartidor";
-      }
+      if (d?.order_id && d?.delivery_user_id) byOrder[d.order_id] = map[d.delivery_user_id] || "Repartidor";
     });
 
-    return orders.map((o) => ({
-      ...o,
-      repartidor_nombre: byOrder[o.id] ?? null,
-    }));
+    return orders.map((o) => ({ ...o, repartidor_nombre: byOrder[o.id] ?? null }));
   };
 
   const cargarPedidos = async () => {
@@ -212,10 +192,19 @@ export default function AdminPedidosClient() {
   };
 
   const updateOrderStatusViaApi = async (orderId: number, estado: string) => {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+    if (!accessToken) throw new Error("No access token");
+
     const r = await fetch("/api/orders/update-status", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ orderId, estado, source: "APP_ADMIN" }),
+      body: JSON.stringify({
+        orderId,
+        estado,
+        source: "APP_ADMIN",
+        accessToken,
+      }),
     });
 
     if (!r.ok) {
@@ -225,7 +214,6 @@ export default function AdminPedidosClient() {
   };
 
   const cambiarEstado = async (id: number, estado: string) => {
-    // optimistic
     setPedidos((p) => p.map((o) => (o.id === id ? { ...o, estado } : o)));
 
     try {
@@ -240,7 +228,7 @@ export default function AdminPedidosClient() {
       }
     } catch (e: any) {
       console.error(e?.message || e);
-      await cargarPedidos(); // rollback
+      await cargarPedidos();
       alert("No se pudo cambiar el estado. Reintentá.");
     }
   };
@@ -252,10 +240,7 @@ export default function AdminPedidosClient() {
       <div className="flex justify-between items-center">
         <div className="flex gap-3 items-center">
           <h1 className="text-2xl font-bold">Gestión de Pedidos</h1>
-          <button
-            onClick={() => syncFudo(true)}
-            className="text-xs px-3 py-1 rounded-full border bg-white"
-          >
+          <button onClick={() => syncFudo(true)} className="text-xs px-3 py-1 rounded-full border bg-white">
             {syncingFudo ? "Sincronizando…" : "↻ Sync Fudo"}
           </button>
         </div>
@@ -265,7 +250,6 @@ export default function AdminPedidosClient() {
         </span>
       </div>
 
-      {/* ---------- VISTAS ---------- */}
       <div className="bg-white border rounded-xl p-3 flex flex-wrap gap-2 items-center justify-between">
         <div className="flex gap-2 items-center">
           <span className="text-xs font-bold uppercase text-slate-500">Vista:</span>
@@ -311,13 +295,9 @@ export default function AdminPedidosClient() {
         </div>
       </div>
 
-      {/* ---------- LISTA ---------- */}
       <div className="space-y-4">
         {pedidos.map((p) => (
-          <div
-            key={p.id}
-            className={`bg-white border rounded-xl p-4 border-l-4 ${estadoLeftBorder(p.estado)}`}
-          >
+          <div key={p.id} className={`bg-white border rounded-xl p-4 border-l-4 ${estadoLeftBorder(p.estado)}`}>
             <div className="flex gap-2 items-center">
               <span className="bg-slate-800 text-white px-2 rounded text-xs">#{p.id}</span>
               <strong>{p.cliente_nombre}</strong>
@@ -330,7 +310,6 @@ export default function AdminPedidosClient() {
               📍 {p.direccion_entrega} · 💰 ${p.monto}
             </div>
 
-            {/* ✅ MOSTRAR REPARTIDOR */}
             <div className="text-sm text-slate-700 mt-1 font-semibold">
               🛵 Repartidor:{" "}
               <span className="font-bold">{p.repartidor_nombre ? p.repartidor_nombre : "Sin asignar"}</span>
