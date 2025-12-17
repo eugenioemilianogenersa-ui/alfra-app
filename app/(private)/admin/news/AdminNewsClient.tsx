@@ -41,13 +41,17 @@ export default function AdminNewsPage() {
   const [imageUrl, setImageUrl] = useState("");
   const [category, setCategory] = useState("");
   const [isPublished, setIsPublished] = useState(false);
-  const [wasPublished, setWasPublished] = useState(false);
+  const [wasPublished, setWasPublished] = useState(false); // anti-spam
   const [saving, setSaving] = useState(false);
   const [formMessage, setFormMessage] = useState<string | null>(null);
 
   const [imageUploading, setImageUploading] = useState(false);
-  const [imageUploadMessage, setImageUploadMessage] = useState<string | null>(null);
-  const [selectedFileName, setSelectedFileName] = useState("Ningún archivo seleccionado");
+  const [imageUploadMessage, setImageUploadMessage] = useState<string | null>(
+    null
+  );
+  const [selectedFileName, setSelectedFileName] = useState(
+    "Ningún archivo seleccionado"
+  );
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -78,7 +82,9 @@ export default function AdminNewsPage() {
         .maybeSingle();
 
       if (profError) {
-        setErrorMsg(`Error al leer profiles: ${profError.code} - ${profError.message}`);
+        setErrorMsg(
+          `Error al leer profiles: ${profError.code} - ${profError.message}`
+        );
         setLoading(false);
         return;
       }
@@ -103,7 +109,9 @@ export default function AdminNewsPage() {
         .order("created_at", { ascending: false });
 
       if (newsError) {
-        setErrorMsg(`Error al cargar noticias: ${newsError.code} - ${newsError.message}`);
+        setErrorMsg(
+          `Error al cargar noticias: ${newsError.code} - ${newsError.message}`
+        );
         setLoading(false);
         return;
       }
@@ -154,16 +162,22 @@ export default function AdminNewsPage() {
 
     try {
       const ext = file.name.split(".").pop() || "jpg";
-      const fileName = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+      const fileName = `${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2)}.${ext}`;
 
-      const { data, error } = await supabase.storage.from("news-images").upload(fileName, file);
+      const { data, error } = await supabase.storage
+        .from("news-images")
+        .upload(fileName, file);
 
       if (error) {
         setImageUploadMessage(`Error al subir imagen: ${error.message}`);
         return;
       }
 
-      const { data: publicData } = supabase.storage.from("news-images").getPublicUrl(data.path);
+      const { data: publicData } = supabase.storage
+        .from("news-images")
+        .getPublicUrl(data.path);
 
       setImageUrl(publicData.publicUrl);
       setImageUploadMessage("Imagen subida correctamente.");
@@ -172,17 +186,27 @@ export default function AdminNewsPage() {
     }
   }
 
-  async function fireNewsPush(params: { newsId: string; title: string; summary: string | null }) {
-    const { data: sessionData } = await supabase.auth.getSession();
-    const token = sessionData.session?.access_token;
+  // ✅ FIX: manda Authorization Bearer token (evita 401 en /api/push/notify-news)
+  async function fireNewsPush(params: {
+    newsId: string;
+    title: string;
+    summary: string | null;
+  }) {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
 
-    if (!token) return;
+    const token = session?.access_token;
+    if (!token) {
+      console.error("No access token for notify-news");
+      return;
+    }
 
     await fetch("/api/push/notify-news", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`, // ✅ CLAVE
+        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({
         newsId: params.newsId,
@@ -222,11 +246,14 @@ export default function AdminNewsPage() {
           .single();
 
         if (error) {
-          setFormMessage(`Error al crear noticia: ${error.code} - ${error.message}`);
+          setFormMessage(
+            `Error al crear noticia: ${error.code} - ${error.message}`
+          );
           return;
         }
 
         if (inserted) {
+          // ✅ PUSH solo si se crea publicada
           if (isPublished) {
             await fireNewsPush({
               newsId: inserted.id,
@@ -256,11 +283,14 @@ export default function AdminNewsPage() {
           .single();
 
         if (error) {
-          setFormMessage(`Error al actualizar noticia: ${error.code} - ${error.message}`);
+          setFormMessage(
+            `Error al actualizar noticia: ${error.code} - ${error.message}`
+          );
           return;
         }
 
         if (updated) {
+          // ✅ PUSH solo si pasa de borrador → publicada
           if (!wasPublished && isPublished) {
             await fireNewsPush({
               newsId: updated.id,
@@ -269,7 +299,10 @@ export default function AdminNewsPage() {
             });
           }
 
-          setNews((prev) => prev.map((n) => (n.id === editingId ? (updated as NewsRow) : n)));
+          setNews((prev) =>
+            prev.map((n) => (n.id === editingId ? (updated as NewsRow) : n))
+          );
+
           setWasPublished(isPublished);
           setFormMessage("Noticia actualizada correctamente.");
         }
@@ -280,7 +313,9 @@ export default function AdminNewsPage() {
   }
 
   async function handleDelete(n: NewsRow) {
-    const ok = window.confirm(`¿Eliminar la noticia "${n.title}"? Esta acción es permanente.`);
+    const ok = window.confirm(
+      `¿Eliminar la noticia "${n.title}"? Esta acción es permanente.`
+    );
     if (!ok) return;
 
     const { error } = await supabase.from("news").delete().eq("id", n.id);
@@ -301,7 +336,11 @@ export default function AdminNewsPage() {
     <main className="p-6 space-y-6 max-w-5xl mx-auto">
       <h1 className="text-2xl font-bold mb-2">Novedades / Noticias</h1>
 
-      {loading && <p className="text-sm text-muted-foreground">Cargando datos del panel...</p>}
+      {loading && (
+        <p className="text-sm text-muted-foreground">
+          Cargando datos del panel...
+        </p>
+      )}
 
       {!loading && errorMsg && (
         <div className="border border-red-400 bg-red-50 p-4 rounded text-sm">
@@ -316,7 +355,9 @@ export default function AdminNewsPage() {
             <p className="text-sm">
               Logueado como{" "}
               <strong>
-                {adminProfile.email ?? adminProfile.display_name ?? adminProfile.full_name}
+                {adminProfile.email ??
+                  adminProfile.display_name ??
+                  adminProfile.full_name}
               </strong>{" "}
               (rol: <strong>{adminProfile.role}</strong>)
             </p>
@@ -325,7 +366,9 @@ export default function AdminNewsPage() {
 
           <section className="border rounded p-4 space-y-3">
             <div className="flex items-center justify-between gap-2">
-              <h2 className="font-semibold">{editingId ? "Editar noticia" : "Nueva noticia"}</h2>
+              <h2 className="font-semibold">
+                {editingId ? "Editar noticia" : "Nueva noticia"}
+              </h2>
               {editingId && (
                 <button
                   type="button"
@@ -350,7 +393,9 @@ export default function AdminNewsPage() {
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">Resumen corto</label>
+                <label className="text-xs text-muted-foreground">
+                  Resumen corto
+                </label>
                 <input
                   type="text"
                   value={summary}
@@ -361,7 +406,9 @@ export default function AdminNewsPage() {
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">Contenido / detalle</label>
+                <label className="text-xs text-muted-foreground">
+                  Contenido / detalle
+                </label>
                 <textarea
                   value={content}
                   onChange={(e) => setContent(e.target.value)}
@@ -372,7 +419,9 @@ export default function AdminNewsPage() {
 
               <div className="grid gap-3 md:grid-cols-3">
                 <div className="space-y-2 md:col-span-2">
-                  <label className="text-xs text-muted-foreground">Imagen (PC / galería / cámara)</label>
+                  <label className="text-xs text-muted-foreground">
+                    Imagen (PC / galería / cámara)
+                  </label>
 
                   <input
                     ref={fileInputRef}
@@ -390,16 +439,28 @@ export default function AdminNewsPage() {
                     >
                       Subir imagen
                     </button>
-                    <span className="text-[11px] text-slate-500 truncate">{selectedFileName}</span>
+                    <span className="text-[11px] text-slate-500 truncate">
+                      {selectedFileName}
+                    </span>
                   </div>
 
-                  {imageUploading && <p className="text-xs text-slate-500">Subiendo imagen...</p>}
-                  {imageUploadMessage && <p className="text-xs text-slate-500">{imageUploadMessage}</p>}
+                  {imageUploading && (
+                    <p className="text-xs text-slate-500">Subiendo imagen...</p>
+                  )}
+                  {imageUploadMessage && (
+                    <p className="text-xs text-slate-500">{imageUploadMessage}</p>
+                  )}
 
                   {imageUrl && (
                     <div className="mt-2">
-                      <p className="text-[11px] text-slate-500 mb-1">Vista previa:</p>
-                      <img src={imageUrl} alt="Vista previa" className="h-24 rounded-md object-cover border" />
+                      <p className="text-[11px] text-slate-500 mb-1">
+                        Vista previa:
+                      </p>
+                      <img
+                        src={imageUrl}
+                        alt="Vista previa"
+                        className="h-24 rounded-md object-cover border"
+                      />
                     </div>
                   )}
                 </div>
@@ -421,7 +482,10 @@ export default function AdminNewsPage() {
                       checked={isPublished}
                       onChange={(e) => setIsPublished(e.target.checked)}
                     />
-                    <label htmlFor="is_published" className="text-sm text-muted-foreground">
+                    <label
+                      htmlFor="is_published"
+                      className="text-sm text-muted-foreground"
+                    >
                       Publicada (visible en la app)
                     </label>
                   </div>
@@ -434,11 +498,17 @@ export default function AdminNewsPage() {
                   disabled={saving}
                   className="border rounded px-3 py-1 text-sm bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-60"
                 >
-                  {saving ? "Guardando..." : editingId ? "Guardar cambios" : "Crear noticia"}
+                  {saving
+                    ? "Guardando..."
+                    : editingId
+                    ? "Guardar cambios"
+                    : "Crear noticia"}
                 </button>
               </div>
 
-              {formMessage && <p className="text-xs text-muted-foreground">{formMessage}</p>}
+              {formMessage && (
+                <p className="text-xs text-muted-foreground">{formMessage}</p>
+              )}
             </form>
           </section>
 
@@ -459,21 +529,33 @@ export default function AdminNewsPage() {
                 <tbody>
                   {news.map((n) => (
                     <tr key={n.id} className="border-b last:border-0">
-                      <td className="py-1 pr-2">{new Date(n.created_at).toLocaleString()}</td>
+                      <td className="py-1 pr-2">
+                        {new Date(n.created_at).toLocaleString()}
+                      </td>
                       <td className="py-1 pr-2">{n.title}</td>
-                      <td className="py-1 pr-2">{n.category ?? <span className="text-slate-400">-</span>}</td>
+                      <td className="py-1 pr-2">
+                        {n.category ?? <span className="text-slate-400">-</span>}
+                      </td>
                       <td className="py-1 pr-2">
                         {n.is_published ? (
-                          <span className="text-green-700 font-semibold">Publicada</span>
+                          <span className="text-green-700 font-semibold">
+                            Publicada
+                          </span>
                         ) : (
                           <span className="text-slate-500">Borrador</span>
                         )}
                       </td>
                       <td className="py-1 pr-2 text-right space-x-1">
-                        <button className="border rounded px-2 py-1 text-[10px]" onClick={() => startEdit(n)}>
+                        <button
+                          className="border rounded px-2 py-1 text-[10px]"
+                          onClick={() => startEdit(n)}
+                        >
                           Editar
                         </button>
-                        <button className="border rounded px-2 py-1 text-[10px]" onClick={() => handleDelete(n)}>
+                        <button
+                          className="border rounded px-2 py-1 text-[10px]"
+                          onClick={() => handleDelete(n)}
+                        >
                           Eliminar
                         </button>
                       </td>
@@ -481,7 +563,10 @@ export default function AdminNewsPage() {
                   ))}
                   {news.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="py-2 text-center text-muted-foreground">
+                      <td
+                        colSpan={5}
+                        className="py-2 text-center text-muted-foreground"
+                      >
                         Todavía no hay noticias cargadas.
                       </td>
                     </tr>
