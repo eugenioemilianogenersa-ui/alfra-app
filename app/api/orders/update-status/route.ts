@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
+import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { createClient } from "@/lib/supabaseServer";
 
 type Body = {
   orderId: number;
@@ -9,20 +10,26 @@ type Body = {
 };
 
 export async function POST(req: Request) {
-  const supabase = createClient();
+  const supabase = createRouteHandlerClient({ cookies });
 
   const {
     data: { user },
+    error: userErr,
   } = await supabase.auth.getUser();
 
-  if (!user) return NextResponse.json({ error: "No auth" }, { status: 401 });
+  if (userErr) {
+    return NextResponse.json({ error: userErr.message }, { status: 401 });
+  }
+  if (!user) {
+    return NextResponse.json({ error: "No auth" }, { status: 401 });
+  }
 
   const body = (await req.json()) as Body;
   if (!body?.orderId || !body?.estado || !body?.source) {
     return NextResponse.json({ error: "Missing params" }, { status: 400 });
   }
 
-  // role del usuario (usamos supabaseAdmin para evitar problemas de RLS)
+  // role del usuario (service role, no depende de RLS)
   const { data: profile, error: pErr } = await supabaseAdmin
     .from("profiles")
     .select("role")
@@ -33,12 +40,11 @@ export async function POST(req: Request) {
 
   const role = profile?.role;
 
-  // Solo admin o delivery
   if (role !== "admin" && role !== "delivery") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  // Si es delivery, debe tener asignado ese orderId
+  // Si es delivery, debe estar asignado a ese orderId
   if (role === "delivery") {
     const { data: d } = await supabaseAdmin
       .from("deliveries")
@@ -47,7 +53,9 @@ export async function POST(req: Request) {
       .eq("delivery_user_id", user.id)
       .maybeSingle();
 
-    if (!d) return NextResponse.json({ error: "Not assigned" }, { status: 403 });
+    if (!d) {
+      return NextResponse.json({ error: "Not assigned" }, { status: 403 });
+    }
   }
 
   const { error } = await supabaseAdmin
