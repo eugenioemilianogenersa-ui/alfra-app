@@ -1,28 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
+import { createClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 type Estado =
   | "pendiente"
-  | "en_preparacion"
-  | "listo_para_entregar"
+  | "en preparación"
+  | "listo para entregar"
   | "enviado"
   | "entregado"
   | "cancelado";
 
 const ESTADOS: Estado[] = [
   "pendiente",
-  "en_preparacion",
-  "listo_para_entregar",
+  "en preparación",
+  "listo para entregar",
   "enviado",
   "entregado",
   "cancelado",
 ];
 
 const TRANSICIONES: Record<Estado, Estado[]> = {
-  pendiente: ["en_preparacion", "cancelado"],
-  en_preparacion: ["listo_para_entregar", "cancelado"],
-  listo_para_entregar: ["enviado", "cancelado"],
+  pendiente: ["en preparación", "cancelado"],
+  "en preparación": ["listo para entregar", "cancelado"],
+  "listo para entregar": ["enviado", "cancelado"],
   enviado: ["entregado", "cancelado"],
   entregado: [],
   cancelado: [],
@@ -31,7 +32,14 @@ const TRANSICIONES: Record<Estado, Estado[]> = {
 function normEstado(v: unknown): Estado | null {
   if (typeof v !== "string") return null;
   const s = v.trim().toLowerCase();
-  return ESTADOS.includes(s as Estado) ? (s as Estado) : null;
+
+  // normalizamos variantes comunes por si vienen sin tilde o con underscores
+  const normalized =
+    s === "en_preparacion" || s === "en preparacion" ? "en preparación"
+    : s === "listo_para_entregar" || s === "listo para entregar" ? "listo para entregar"
+    : s;
+
+  return ESTADOS.includes(normalized as Estado) ? (normalized as Estado) : null;
 }
 
 function normSource(v: unknown): string {
@@ -54,6 +62,54 @@ type CookiesToSetItem = {
   options: CookieOptions;
 };
 
+async function getUserFromCookie(req: NextRequest) {
+  const res = NextResponse.next();
+
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return req.cookies.getAll();
+        },
+        setAll(cookiesToSet: CookiesToSetItem[]) {
+          cookiesToSet.forEach((c) => {
+            res.cookies.set(c.name, c.value, c.options);
+          });
+        },
+      },
+    }
+  );
+
+  const { data, error } = await supabase.auth.getUser();
+  if (error || !data?.user) return null;
+
+  return { user: data.user, supabase };
+}
+
+async function getUserFromBearer(req: NextRequest) {
+  const auth = req.headers.get("authorization") || "";
+  if (!auth.toLowerCase().startsWith("bearer ")) return null;
+
+  const token = auth.slice(7).trim();
+  if (!token) return null;
+
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      global: { headers: { Authorization: `Bearer ${token}` } },
+      auth: { persistSession: false, autoRefreshToken: false },
+    }
+  );
+
+  const { data, error } = await supabase.auth.getUser();
+  if (error || !data?.user) return null;
+
+  return { user: data.user, supabase };
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json().catch(() => null)) as Body | null;
@@ -66,30 +122,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Datos incompletos" }, { status: 400 });
     }
 
-    // Auth SSR (evita el crash de auth-helpers en route handlers)
-    const res = NextResponse.next();
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll() {
-            return req.cookies.getAll();
-          },
-          setAll(cookiesToSet: CookiesToSetItem[]) {
-            cookiesToSet.forEach((c) => {
-              res.cookies.set(c.name, c.value, c.options);
-            });
-          },
-        },
-      }
-    );
+    // Auth: cookie o bearer
+    const cookieAuth = await getUserFromCookie(req);
+    const bearerAuth = cookieAuth ? null : await getUserFromBearer(req);
+    const authCtx = cookieAuth || bearerAuth;
 
-    const { data: userData, error: userErr } = await supabase.auth.getUser();
-    if (userErr || !userData?.user) {
+    if (!authCtx) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const user = userData.user;
+
+    const { user, supabase } = authCtx;
 
     // Rol desde profiles
     const { data: prof, error: profErr } = await supabase
@@ -105,6 +147,7 @@ export async function POST(req: NextRequest) {
     const role = String(prof.role).toUpperCase();
     const isAdmin = role === "ADMIN";
     const isDelivery = role === "DELIVERY";
+
     if (!isAdmin && !isDelivery) {
       return NextResponse.json({ error: "Forbidden (rol)" }, { status: 403 });
     }
@@ -122,7 +165,7 @@ export async function POST(req: NextRequest) {
 
     const currentEstado = normEstado(order.estado) ?? "pendiente";
 
-    // Delivery: debe estar asignado en deliveries y solo puede ENVIADO/ENTREGADO
+    // Delivery: debe estar asignado y solo puede enviado/entregado
     if (isDelivery) {
       const { data: link, error: linkErr } = await supabaseAdmin
         .from("deliveries")
@@ -140,7 +183,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Anti-rollback (transiciones)
+    // Anti-rollback
     const allowed = TRANSICIONES[currentEstado] ?? [];
     if (!allowed.includes(nextEstado)) {
       return NextResponse.json(

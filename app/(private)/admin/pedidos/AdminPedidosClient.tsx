@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabaseClient";
+import { updateOrderStatus } from "@/lib/updateOrderStatus";
 
 type Order = {
   id: number;
@@ -191,33 +192,11 @@ export default function AdminPedidosClient() {
     await cargarPedidos();
   };
 
-  const updateOrderStatusViaApi = async (orderId: number, estado: string) => {
-    const { data: sessionData } = await supabase.auth.getSession();
-    const accessToken = sessionData.session?.access_token;
-    if (!accessToken) throw new Error("No access token");
-
-    const r = await fetch("/api/orders/update-status", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        orderId,
-        estado,
-        source: "APP_ADMIN",
-        accessToken,
-      }),
-    });
-
-    if (!r.ok) {
-      const txt = await r.text().catch(() => "");
-      throw new Error(`update-status failed ${r.status} ${txt}`);
-    }
-  };
-
   const cambiarEstado = async (id: number, estado: string) => {
     setPedidos((p) => p.map((o) => (o.id === id ? { ...o, estado } : o)));
 
     try {
-      await updateOrderStatusViaApi(id, estado);
+      await updateOrderStatus({ orderId: id, estado, source: "APP_ADMIN" });
 
       if (["enviado", "entregado", "cancelado"].includes(estado)) {
         await fetch("/api/push/notify-order-status", {
@@ -256,27 +235,21 @@ export default function AdminPedidosClient() {
 
           <button
             onClick={() => setViewMode("SHIFT")}
-            className={`text-xs px-3 py-1 rounded-full border ${
-              viewMode === "SHIFT" ? "bg-slate-900 text-white" : "bg-white"
-            }`}
+            className={`text-xs px-3 py-1 rounded-full border ${viewMode === "SHIFT" ? "bg-slate-900 text-white" : "bg-white"}`}
           >
             Turno actual (19hs a 2hs)
           </button>
 
           <button
             onClick={() => setViewMode("48H")}
-            className={`text-xs px-3 py-1 rounded-full border ${
-              viewMode === "48H" ? "bg-slate-900 text-white" : "bg-white"
-            }`}
+            className={`text-xs px-3 py-1 rounded-full border ${viewMode === "48H" ? "bg-slate-900 text-white" : "bg-white"}`}
           >
             Últimas 48h
           </button>
 
           <button
             onClick={() => setViewMode("ID")}
-            className={`text-xs px-3 py-1 rounded-full border ${
-              viewMode === "ID" ? "bg-slate-900 text-white" : "bg-white"
-            }`}
+            className={`text-xs px-3 py-1 rounded-full border ${viewMode === "ID" ? "bg-slate-900 text-white" : "bg-white"}`}
           >
             Buscar por ID
           </button>
@@ -311,8 +284,7 @@ export default function AdminPedidosClient() {
             </div>
 
             <div className="text-sm text-slate-700 mt-1 font-semibold">
-              🛵 Repartidor:{" "}
-              <span className="font-bold">{p.repartidor_nombre ? p.repartidor_nombre : "Sin asignar"}</span>
+              🛵 Repartidor: <span className="font-bold">{p.repartidor_nombre ? p.repartidor_nombre : "Sin asignar"}</span>
             </div>
 
             <div className="flex gap-3 mt-3 justify-end">

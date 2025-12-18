@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useRef } from "react";
 import { createClient } from "@/lib/supabaseClient";
+import { updateOrderStatus } from "@/lib/updateOrderStatus";
 
 type Order = {
   id: number;
@@ -212,8 +213,7 @@ export default function DeliveryClient() {
       },
       (err) => {
         console.error("Error GPS:", err);
-        const msg =
-          (err as GeolocationPositionError).message || "Problema con GPS (¿sin HTTPS?).";
+        const msg = (err as GeolocationPositionError).message || "Problema con GPS (¿sin HTTPS?).";
         setGpsError(`Problema con GPS: ${msg}`);
       },
       options
@@ -232,29 +232,6 @@ export default function DeliveryClient() {
     setGpsError(null);
   };
 
-  const updateOrderStatusViaApi = async (orderId: number, estado: string) => {
-    const { data: sessionData } = await supabase.auth.getSession();
-    const accessToken = sessionData.session?.access_token;
-
-    if (!accessToken) throw new Error("No access token");
-
-    const r = await fetch("/api/orders/update-status", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        orderId,
-        estado,
-        source: "APP_DELIVERY",
-        accessToken,
-      }),
-    });
-
-    if (!r.ok) {
-      const txt = await r.text().catch(() => "");
-      throw new Error(`update-status failed ${r.status} ${txt}`);
-    }
-  };
-
   const handleComenzarViaje = async (orderId: number) => {
     setItems((prev) =>
       prev.map((item) =>
@@ -263,7 +240,7 @@ export default function DeliveryClient() {
     );
 
     try {
-      await updateOrderStatusViaApi(orderId, "enviado");
+      await updateOrderStatus({ orderId, estado: "enviado", source: "APP_DELIVERY" });
 
       await fetch("/api/push/notify-order-status", {
         method: "POST",
@@ -284,7 +261,7 @@ export default function DeliveryClient() {
     setItems((prev) => prev.filter((item) => item.orders.id !== orderId));
 
     try {
-      await updateOrderStatusViaApi(orderId, "entregado");
+      await updateOrderStatus({ orderId, estado: "entregado", source: "APP_DELIVERY" });
 
       await fetch("/api/push/notify-order-status", {
         method: "POST",
@@ -329,17 +306,12 @@ export default function DeliveryClient() {
         const order = item.orders;
 
         return (
-          <div
-            key={item.id}
-            className={`border rounded-xl shadow-sm overflow-hidden bg-white ${estadoRingClass(order.estado)}`}
-          >
+          <div key={item.id} className={`border rounded-xl shadow-sm overflow-hidden bg-white ${estadoRingClass(order.estado)}`}>
             <div className={`${estadoHeaderClass(order.estado)} text-white p-4 flex justify-between items-center`}>
               <span className="font-bold text-lg">#{order.id}</span>
 
               <span
-                className={`text-[11px] px-2 py-1 rounded-full uppercase font-bold border ${estadoBadgeClass(
-                  order.estado
-                )}`}
+                className={`text-[11px] px-2 py-1 rounded-full uppercase font-bold border ${estadoBadgeClass(order.estado)}`}
                 style={{ backgroundColor: "rgba(255,255,255,0.9)" }}
               >
                 {order.estado}
