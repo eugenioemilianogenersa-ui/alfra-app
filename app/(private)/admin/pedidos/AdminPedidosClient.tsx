@@ -24,7 +24,14 @@ type Profile = {
 
 type ViewMode = "SHIFT" | "48H" | "ID";
 
-const ESTADOS = ["pendiente", "en preparación", "listo para entregar", "enviado", "entregado", "cancelado"];
+const ESTADOS = [
+  "pendiente",
+  "en preparación",
+  "listo para entregar",
+  "enviado",
+  "entregado",
+  "cancelado",
+];
 
 // ---------- helpers UI ----------
 const estadoBadgeClass = (e?: string | null) =>
@@ -89,6 +96,9 @@ export default function AdminPedidosClient() {
   const [viewMode, setViewMode] = useState<ViewMode>("SHIFT");
   const [searchId, setSearchId] = useState("");
 
+  // ✅ Rol del usuario logueado (admin o staff)
+  const [myRole, setMyRole] = useState<"admin" | "staff" | null>(null);
+
   const isSyncingRef = useRef(false);
   const last429Ref = useRef<number | null>(null);
 
@@ -96,13 +106,19 @@ export default function AdminPedidosClient() {
     if (!orders.length) return [];
     const ids = orders.map((o) => o.id);
 
-    const { data: del } = await supabase.from("deliveries").select("order_id, delivery_user_id").in("order_id", ids);
+    const { data: del } = await supabase
+      .from("deliveries")
+      .select("order_id, delivery_user_id")
+      .in("order_id", ids);
 
     if (!del?.length) return orders.map((o) => ({ ...o, repartidor_nombre: null }));
 
     const uids = [...new Set(del.map((d: any) => d.delivery_user_id))].filter(Boolean);
 
-    const { data: prof } = await supabase.from("profiles").select("id, display_name, email").in("id", uids as string[]);
+    const { data: prof } = await supabase
+      .from("profiles")
+      .select("id, display_name, email")
+      .in("id", uids as string[]);
 
     const map: Record<string, string> = {};
     prof?.forEach((p: any) => {
@@ -153,8 +169,22 @@ export default function AdminPedidosClient() {
 
   useEffect(() => {
     (async () => {
+      // ✅ setear myRole (admin/staff) para source correcto
+      const { data: session } = await supabase.auth.getSession();
+      if (!session.session) return;
+
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", session.session.user.id)
+        .single();
+
+      const r = String(profile?.role || "").toLowerCase();
+      setMyRole(r === "staff" ? "staff" : "admin");
+
       const { data } = await supabase.from("profiles").select("*").eq("role", "delivery");
       setRepartidores(data ?? []);
+
       await cargarPedidos();
       setLoading(false);
       await syncFudo(true);
@@ -196,7 +226,11 @@ export default function AdminPedidosClient() {
     setPedidos((p) => p.map((o) => (o.id === id ? { ...o, estado } : o)));
 
     try {
-      await updateOrderStatus({ orderId: id, estado, source: "APP_ADMIN" });
+      await updateOrderStatus({
+        orderId: id,
+        estado,
+        source: myRole === "staff" ? "APP_STAFF" : "APP_ADMIN",
+      });
 
       if (["enviado", "entregado", "cancelado"].includes(estado)) {
         await fetch("/api/push/notify-order-status", {
@@ -235,21 +269,27 @@ export default function AdminPedidosClient() {
 
           <button
             onClick={() => setViewMode("SHIFT")}
-            className={`text-xs px-3 py-1 rounded-full border ${viewMode === "SHIFT" ? "bg-slate-900 text-white" : "bg-white"}`}
+            className={`text-xs px-3 py-1 rounded-full border ${
+              viewMode === "SHIFT" ? "bg-slate-900 text-white" : "bg-white"
+            }`}
           >
             Turno actual (19hs a 2hs)
           </button>
 
           <button
             onClick={() => setViewMode("48H")}
-            className={`text-xs px-3 py-1 rounded-full border ${viewMode === "48H" ? "bg-slate-900 text-white" : "bg-white"}`}
+            className={`text-xs px-3 py-1 rounded-full border ${
+              viewMode === "48H" ? "bg-slate-900 text-white" : "bg-white"
+            }`}
           >
             Últimas 48h
           </button>
 
           <button
             onClick={() => setViewMode("ID")}
-            className={`text-xs px-3 py-1 rounded-full border ${viewMode === "ID" ? "bg-slate-900 text-white" : "bg-white"}`}
+            className={`text-xs px-3 py-1 rounded-full border ${
+              viewMode === "ID" ? "bg-slate-900 text-white" : "bg-white"
+            }`}
           >
             Buscar por ID
           </button>
@@ -284,7 +324,8 @@ export default function AdminPedidosClient() {
             </div>
 
             <div className="text-sm text-slate-700 mt-1 font-semibold">
-              🛵 Repartidor: <span className="font-bold">{p.repartidor_nombre ? p.repartidor_nombre : "Sin asignar"}</span>
+              🛵 Repartidor:{" "}
+              <span className="font-bold">{p.repartidor_nombre ? p.repartidor_nombre : "Sin asignar"}</span>
             </div>
 
             <div className="flex gap-3 mt-3 justify-end">

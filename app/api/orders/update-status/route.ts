@@ -33,11 +33,12 @@ function normEstado(v: unknown): Estado | null {
   if (typeof v !== "string") return null;
   const s = v.trim().toLowerCase();
 
-  // normalizamos variantes comunes por si vienen sin tilde o con underscores
   const normalized =
-    s === "en_preparacion" || s === "en preparacion" ? "en preparación"
-    : s === "listo_para_entregar" || s === "listo para entregar" ? "listo para entregar"
-    : s;
+    s === "en_preparacion" || s === "en preparacion"
+      ? "en preparación"
+      : s === "listo_para_entregar" || s === "listo para entregar"
+        ? "listo para entregar"
+        : s;
 
   return ESTADOS.includes(normalized as Estado) ? (normalized as Estado) : null;
 }
@@ -46,7 +47,7 @@ function normSource(v: unknown): string {
   if (typeof v !== "string") return "API";
   const s = v.trim();
   if (!s) return "API";
-  if (["APP_ADMIN", "APP_DELIVERY", "FUDO", "API"].includes(s)) return s;
+  if (["APP_ADMIN", "APP_STAFF", "APP_DELIVERY", "FUDO", "API"].includes(s)) return s;
   return "API";
 }
 
@@ -74,9 +75,7 @@ async function getUserFromCookie(req: NextRequest) {
           return req.cookies.getAll();
         },
         setAll(cookiesToSet: CookiesToSetItem[]) {
-          cookiesToSet.forEach((c) => {
-            res.cookies.set(c.name, c.value, c.options);
-          });
+          cookiesToSet.forEach((c) => res.cookies.set(c.name, c.value, c.options));
         },
       },
     }
@@ -127,9 +126,7 @@ export async function POST(req: NextRequest) {
     const bearerAuth = cookieAuth ? null : await getUserFromBearer(req);
     const authCtx = cookieAuth || bearerAuth;
 
-    if (!authCtx) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (!authCtx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const { user, supabase } = authCtx;
 
@@ -146,10 +143,16 @@ export async function POST(req: NextRequest) {
 
     const role = String(prof.role).toUpperCase();
     const isAdmin = role === "ADMIN";
+    const isStaff = role === "STAFF";
     const isDelivery = role === "DELIVERY";
 
-    if (!isAdmin && !isDelivery) {
+    if (!isAdmin && !isStaff && !isDelivery) {
       return NextResponse.json({ error: "Forbidden (rol)" }, { status: 403 });
+    }
+
+    // STAFF: NO puede cancelar
+    if (isStaff && nextEstado === "cancelado") {
+      return NextResponse.json({ error: "Forbidden (STAFF no cancela)" }, { status: 403 });
     }
 
     // Estado actual (service role)
@@ -193,6 +196,8 @@ export async function POST(req: NextRequest) {
     }
 
     const now = new Date().toISOString();
+
+    // Update order
     const { error: updErr } = await supabaseAdmin
       .from("orders")
       .update({
@@ -206,6 +211,22 @@ export async function POST(req: NextRequest) {
     if (updErr) {
       console.error("update-status error:", updErr);
       return NextResponse.json({ error: updErr.message }, { status: 500 });
+    }
+
+    // Auditoría (si existe tabla)
+    // Si la tabla no existe aún, este insert va a fallar silencioso en logs, pero NO rompe el update.
+    try {
+      await supabaseAdmin.from("order_status_log").insert({
+        order_id: id,
+        estado_from: currentEstado,
+        estado_to: nextEstado,
+        actor_user_id: user.id,
+        actor_role: role,
+        source,
+        metadata: { actor_user_id: user.id, actor_role: role, source },
+      });
+    } catch (e) {
+      console.warn("order_status_log insert skipped:", e);
     }
 
     return NextResponse.json({ ok: true, orderId: id, estado: nextEstado });

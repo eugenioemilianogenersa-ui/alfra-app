@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabaseClient";
 type UpdateOrderStatusArgs = {
   orderId: number;
   estado: string;
-  source?: "APP_ADMIN" | "APP_DELIVERY" | "FUDO" | "API";
+  source?: "APP_ADMIN" | "APP_STAFF" | "APP_DELIVERY" | "FUDO" | "API";
 };
 
 export async function updateOrderStatus({
@@ -14,7 +14,6 @@ export async function updateOrderStatus({
   source = "API",
 }: UpdateOrderStatusArgs) {
   const supabase = createClient();
-
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;
 
@@ -28,7 +27,6 @@ export async function updateOrderStatus({
   });
 
   const json = await r.json().catch(() => ({} as any));
-
   if (!r.ok) {
     const msg = (json as any)?.error || `HTTP ${r.status}`;
     throw new Error(msg);

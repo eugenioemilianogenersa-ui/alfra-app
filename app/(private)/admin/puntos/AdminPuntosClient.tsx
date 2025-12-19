@@ -11,10 +11,11 @@ type UserPoints = {
 };
 
 type HistoryEvent = {
-  id: number;
+  id: string;
   delta: number;
   reason: string;
   created_at: string;
+  metadata?: any;
 };
 
 export default function AdminPuntosClient() {
@@ -38,12 +39,8 @@ export default function AdminPuntosClient() {
   }, [selectedUser]);
 
   async function loadData() {
-    const { data: profiles } = await supabase
-      .from("profiles")
-      .select("id, display_name, email");
-    const { data: wallets } = await supabase
-      .from("loyalty_wallets")
-      .select("user_id, points");
+    const { data: profiles } = await supabase.from("profiles").select("id, display_name, email");
+    const { data: wallets } = await supabase.from("loyalty_wallets").select("user_id, points");
 
     if (profiles) {
       const mapped = profiles.map((p: any) => {
@@ -63,10 +60,10 @@ export default function AdminPuntosClient() {
   async function loadHistory(userId: string) {
     const { data } = await supabase
       .from("loyalty_events")
-      .select("*")
+      .select("id, delta, reason, created_at, metadata")
       .eq("user_id", userId)
       .order("created_at", { ascending: false })
-      .limit(5);
+      .limit(10);
 
     if (data) setUserHistory(data as any);
   }
@@ -75,45 +72,54 @@ export default function AdminPuntosClient() {
     e.preventDefault();
     if (!selectedUser) return;
 
-    const delta = parseInt(amount);
-    if (!delta) return alert("Monto inválido");
+    const delta = parseInt(amount, 10);
+    if (!Number.isFinite(delta) || delta === 0) return alert("Monto inválido");
+    if (!reason.trim()) return alert("Motivo obligatorio");
 
-    const newTotal = selectedUser.points + delta;
+    // token
+    const { data: sess } = await supabase.auth.getSession();
+    const token = sess.session?.access_token;
 
-    await supabase.from("loyalty_wallets").upsert({
-      user_id: selectedUser.id,
-      points: newTotal,
-      updated_at: new Date().toISOString(),
+    const r = await fetch("/api/loyalty/adjust-points", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({
+        userId: selectedUser.id,
+        delta,
+        reason: reason.trim(),
+        source: "panel_puntos",
+      }),
     });
 
-    await supabase.from("loyalty_events").insert({
-      user_id: selectedUser.id,
-      delta: delta,
-      reason: reason || "Ajuste Admin",
-      metadata: { source: "admin_puntos" },
-    });
+    const json = await r.json().catch(() => ({} as any));
+    if (!r.ok) {
+      alert((json as any)?.error || `Error ${r.status}`);
+      return;
+    }
 
-    // ✅ PUSH: notificar al cliente (si tiene subscripción + prefs habilitadas)
+    // ✅ PUSH
     await fetch("/api/push/notify-points", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         userId: selectedUser.id,
         delta,
-        reason: reason || "Ajuste Admin",
+        reason: reason.trim(),
       }),
     });
 
     setSelectedUser(null);
     setAmount("");
     setReason("");
-    loadData();
+    await loadData();
   }
 
   const filtered = data.filter(
     (u) =>
-      u.display_name.toLowerCase().includes(search.toLowerCase()) ||
-      u.email.includes(search)
+      u.display_name.toLowerCase().includes(search.toLowerCase()) || u.email.includes(search)
   );
 
   return (
@@ -169,27 +175,17 @@ export default function AdminPuntosClient() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
           <div className="bg-white rounded-xl w-full max-w-lg shadow-2xl overflow-hidden">
             <div className="bg-slate-900 p-4 text-white flex justify-between items-center">
-              <h3 className="font-bold">
-                Ajustar Puntos: {selectedUser.display_name}
-              </h3>
-              <button
-                onClick={() => setSelectedUser(null)}
-                className="text-slate-400 hover:text-white"
-              >
+              <h3 className="font-bold">Ajustar Puntos: {selectedUser.display_name}</h3>
+              <button onClick={() => setSelectedUser(null)} className="text-slate-400 hover:text-white">
                 ✕
               </button>
             </div>
 
             <div className="p-6 grid gap-6">
-              <form
-                onSubmit={handleTransaction}
-                className="space-y-4 border-b pb-6"
-              >
+              <form onSubmit={handleTransaction} className="space-y-4 border-b pb-6">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="text-xs font-bold uppercase block mb-1">
-                      Monto
-                    </label>
+                    <label className="text-xs font-bold uppercase block mb-1">Monto</label>
                     <input
                       type="number"
                       autoFocus
@@ -201,15 +197,14 @@ export default function AdminPuntosClient() {
                     />
                   </div>
                   <div>
-                    <label className="text-xs font-bold uppercase block mb-1">
-                      Motivo
-                    </label>
+                    <label className="text-xs font-bold uppercase block mb-1">Motivo</label>
                     <input
                       type="text"
+                      required
                       value={reason}
                       onChange={(e) => setReason(e.target.value)}
                       className="w-full border p-2 rounded bg-slate-50"
-                      placeholder="Razón..."
+                      placeholder="Obligatorio"
                     />
                   </div>
                 </div>
@@ -222,23 +217,22 @@ export default function AdminPuntosClient() {
               </form>
 
               <div>
-                <h4 className="text-xs font-bold text-slate-500 uppercase mb-2">
-                  Últimos 5 Movimientos
-                </h4>
+                <h4 className="text-xs font-bold text-slate-500 uppercase mb-2">Últimos 10 Movimientos</h4>
                 <div className="bg-slate-50 rounded-lg border overflow-hidden">
                   {userHistory.length === 0 ? (
-                    <p className="text-center text-xs text-slate-400 py-3">
-                      Sin movimientos previos.
-                    </p>
+                    <p className="text-center text-xs text-slate-400 py-3">Sin movimientos previos.</p>
                   ) : (
                     <table className="w-full text-xs">
                       <tbody className="divide-y">
                         {userHistory.map((h) => (
                           <tr key={h.id}>
                             <td className="p-2 text-slate-500">
-                              {new Date(h.created_at).toLocaleDateString()}
+                              {new Date(h.created_at).toLocaleString()}
                             </td>
                             <td className="p-2 text-slate-800">{h.reason}</td>
+                            <td className="p-2 text-slate-500">
+                              {h.metadata?.actor_role ? `${h.metadata.actor_role}` : ""}
+                            </td>
                             <td
                               className={`p-2 text-right font-bold ${
                                 h.delta > 0 ? "text-green-600" : "text-red-600"
@@ -253,6 +247,7 @@ export default function AdminPuntosClient() {
                   )}
                 </div>
               </div>
+
             </div>
           </div>
         </div>
