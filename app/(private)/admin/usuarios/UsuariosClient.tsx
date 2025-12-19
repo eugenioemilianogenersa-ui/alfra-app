@@ -24,6 +24,7 @@ export default function UsuariosClient() {
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<Profile | null>(null);
+  const [formLoading, setFormLoading] = useState(false);
 
   const [formData, setFormData] = useState({
     email: "",
@@ -35,6 +36,7 @@ export default function UsuariosClient() {
 
   useEffect(() => {
     init();
+    // eslint-disable-next-line
   }, []);
 
   async function init() {
@@ -48,44 +50,92 @@ export default function UsuariosClient() {
     setLoading(false);
   }
 
-  async function fetchUsers() {
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("*")
-      .order("created_at", { ascending: false });
+  async function getToken() {
+    const { data } = await supabase.auth.getSession();
+    return data.session?.access_token || null;
+  }
 
-    if (error) {
-      console.error("fetchUsers error:", error.message);
+  async function fetchUsers() {
+    const token = await getToken();
+    const r = await fetch("/api/admin/profiles/list", {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+
+    const json = await r.json().catch(() => ({} as any));
+    if (!r.ok) {
+      console.error("profiles/list:", json?.error || r.status);
       setUsers([]);
       return;
     }
 
-    setUsers(data || []);
+    setUsers((json as any).profiles || []);
   }
 
   async function handleEditSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!editingUser) return;
 
-    const updateData: any = {
-      display_name: formData.displayName,
-      phone: formData.phone,
-    };
+    setFormLoading(true);
+    try {
+      const token = await getToken();
 
-    // SOLO ADMIN puede cambiar rol
-    if (myRole === "admin") {
-      updateData.role = formData.role;
-    }
+      const payload: any = {
+        userId: editingUser.id,
+        display_name: formData.displayName,
+        phone: formData.phone,
+      };
 
-    const { error } = await supabase
-      .from("profiles")
-      .update(updateData)
-      .eq("id", editingUser.id);
+      if (myRole === "admin") payload.role = formData.role;
 
-    if (error) alert(error.message);
-    else {
+      const r = await fetch("/api/admin/profiles/update", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const json = await r.json().catch(() => ({} as any));
+      if (!r.ok) throw new Error((json as any)?.error || `HTTP ${r.status}`);
+
       setEditingUser(null);
-      fetchUsers();
+      await fetchUsers();
+    } catch (err: any) {
+      alert(err.message || "Error");
+    } finally {
+      setFormLoading(false);
+    }
+  }
+
+  async function handleCreateSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (myRole !== "admin") return;
+
+    setFormLoading(true);
+    try {
+      const r = await fetch("/api/admin/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: formData.email,
+          password: formData.password,
+          displayName: formData.displayName,
+          phone: formData.phone,
+          role: formData.role,
+        }),
+      });
+
+      const json = await r.json().catch(() => ({} as any));
+      if (!r.ok) throw new Error((json as any)?.error || `HTTP ${r.status}`);
+
+      setIsCreateOpen(false);
+      setFormData({ email: "", password: "", displayName: "", phone: "", role: "cliente" });
+      await fetchUsers();
+    } catch (err: any) {
+      alert(err.message || "Error al crear");
+    } finally {
+      setFormLoading(false);
     }
   }
 
@@ -154,27 +204,32 @@ export default function UsuariosClient() {
               </td>
             </tr>
           ))}
+
+          {filtered.length === 0 && (
+            <tr>
+              <td className="p-4 text-center text-slate-500" colSpan={3}>
+                No hay usuarios para mostrar.
+              </td>
+            </tr>
+          )}
         </tbody>
       </table>
 
+      {/* MODAL EDIT */}
       {editingUser && (
         <form onSubmit={handleEditSubmit} className="p-4 border rounded bg-white">
           <h3 className="font-bold mb-2">Editar Usuario</h3>
 
           <input
             value={formData.displayName}
-            onChange={(e) =>
-              setFormData({ ...formData, displayName: e.target.value })
-            }
+            onChange={(e) => setFormData({ ...formData, displayName: e.target.value })}
             placeholder="Nombre"
             className="border p-2 w-full mb-2"
           />
 
           <input
             value={formData.phone}
-            onChange={(e) =>
-              setFormData({ ...formData, phone: e.target.value })
-            }
+            onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
             placeholder="Teléfono"
             className="border p-2 w-full mb-2"
           />
@@ -182,9 +237,7 @@ export default function UsuariosClient() {
           {myRole === "admin" && (
             <select
               value={formData.role}
-              onChange={(e) =>
-                setFormData({ ...formData, role: e.target.value })
-              }
+              onChange={(e) => setFormData({ ...formData, role: e.target.value })}
               className="border p-2 w-full mb-2"
             >
               <option value="cliente">Cliente</option>
@@ -194,10 +247,89 @@ export default function UsuariosClient() {
             </select>
           )}
 
-          <button className="bg-emerald-600 text-white px-4 py-2 rounded">
-            Guardar
-          </button>
+          <div className="flex gap-2">
+            <button
+              disabled={formLoading}
+              className="bg-emerald-600 text-white px-4 py-2 rounded disabled:opacity-60"
+            >
+              Guardar
+            </button>
+            <button
+              type="button"
+              onClick={() => setEditingUser(null)}
+              className="border px-4 py-2 rounded"
+            >
+              Cancelar
+            </button>
+          </div>
         </form>
+      )}
+
+      {/* MODAL CREATE */}
+      {isCreateOpen && myRole === "admin" && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white w-full max-w-md rounded-xl p-6 space-y-3">
+            <div className="flex justify-between items-center">
+              <h3 className="font-bold">Crear usuario</h3>
+              <button onClick={() => setIsCreateOpen(false)}>✕</button>
+            </div>
+
+            <form onSubmit={handleCreateSubmit} className="space-y-3">
+              <input
+                className="border p-2 w-full rounded"
+                placeholder="Email"
+                type="email"
+                required
+                value={formData.email}
+                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+              />
+
+              <input
+                className="border p-2 w-full rounded"
+                placeholder="Password"
+                type="password"
+                minLength={6}
+                required
+                value={formData.password}
+                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+              />
+
+              <input
+                className="border p-2 w-full rounded"
+                placeholder="Nombre"
+                required
+                value={formData.displayName}
+                onChange={(e) => setFormData({ ...formData, displayName: e.target.value })}
+              />
+
+              <input
+                className="border p-2 w-full rounded"
+                placeholder="Teléfono"
+                required
+                value={formData.phone}
+                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+              />
+
+              <select
+                className="border p-2 w-full rounded"
+                value={formData.role}
+                onChange={(e) => setFormData({ ...formData, role: e.target.value })}
+              >
+                <option value="cliente">Cliente</option>
+                <option value="staff">Staff</option>
+                <option value="delivery">Delivery</option>
+                <option value="admin">Admin</option>
+              </select>
+
+              <button
+                disabled={formLoading}
+                className="bg-slate-900 text-white w-full py-2 rounded disabled:opacity-60"
+              >
+                {formLoading ? "Creando..." : "Crear"}
+              </button>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );

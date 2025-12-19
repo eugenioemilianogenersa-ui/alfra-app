@@ -38,26 +38,30 @@ export default function AdminPuntosClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedUser]);
 
+  async function getToken() {
+    const { data } = await supabase.auth.getSession();
+    return data.session?.access_token || null;
+  }
+
   async function loadData() {
-    const { data: profiles } = await supabase.from("profiles").select("id, display_name, email");
-    const { data: wallets } = await supabase.from("loyalty_wallets").select("user_id, points");
+    const token = await getToken();
 
-    if (profiles) {
-      const mapped = profiles.map((p: any) => {
-        const w = wallets?.find((wallet: any) => wallet.user_id === p.id);
-        return {
-          id: p.id,
-          display_name: p.display_name || "Sin nombre",
-          email: p.email || "",
-          points: w?.points || 0,
-        };
-      });
+    const r = await fetch("/api/admin/loyalty/list-users", {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
 
-      setData(mapped.sort((a, b) => b.points - a.points));
+    const json = await r.json().catch(() => ({} as any));
+    if (!r.ok) {
+      console.error("list-users error:", (json as any)?.error || r.status);
+      setData([]);
+      return;
     }
+
+    setData(((json as any).users || []) as UserPoints[]);
   }
 
   async function loadHistory(userId: string) {
+    // si esto también te queda vacío por RLS, lo pasamos a endpoint igual
     const { data } = await supabase
       .from("loyalty_events")
       .select("id, delta, reason, created_at, metadata")
@@ -66,6 +70,7 @@ export default function AdminPuntosClient() {
       .limit(10);
 
     if (data) setUserHistory(data as any);
+    else setUserHistory([]);
   }
 
   async function handleTransaction(e: React.FormEvent) {
@@ -76,9 +81,7 @@ export default function AdminPuntosClient() {
     if (!Number.isFinite(delta) || delta === 0) return alert("Monto inválido");
     if (!reason.trim()) return alert("Motivo obligatorio");
 
-    // token
-    const { data: sess } = await supabase.auth.getSession();
-    const token = sess.session?.access_token;
+    const token = await getToken();
 
     const r = await fetch("/api/loyalty/adjust-points", {
       method: "POST",
@@ -100,7 +103,6 @@ export default function AdminPuntosClient() {
       return;
     }
 
-    // ✅ PUSH
     await fetch("/api/push/notify-points", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -119,7 +121,8 @@ export default function AdminPuntosClient() {
 
   const filtered = data.filter(
     (u) =>
-      u.display_name.toLowerCase().includes(search.toLowerCase()) || u.email.includes(search)
+      u.display_name.toLowerCase().includes(search.toLowerCase()) ||
+      u.email.toLowerCase().includes(search.toLowerCase())
   );
 
   return (
@@ -167,6 +170,14 @@ export default function AdminPuntosClient() {
                 </td>
               </tr>
             ))}
+
+            {filtered.length === 0 && (
+              <tr>
+                <td colSpan={3} className="p-6 text-center text-slate-500">
+                  No hay datos para mostrar.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
@@ -226,18 +237,10 @@ export default function AdminPuntosClient() {
                       <tbody className="divide-y">
                         {userHistory.map((h) => (
                           <tr key={h.id}>
-                            <td className="p-2 text-slate-500">
-                              {new Date(h.created_at).toLocaleString()}
-                            </td>
+                            <td className="p-2 text-slate-500">{new Date(h.created_at).toLocaleString()}</td>
                             <td className="p-2 text-slate-800">{h.reason}</td>
-                            <td className="p-2 text-slate-500">
-                              {h.metadata?.actor_role ? `${h.metadata.actor_role}` : ""}
-                            </td>
-                            <td
-                              className={`p-2 text-right font-bold ${
-                                h.delta > 0 ? "text-green-600" : "text-red-600"
-                              }`}
-                            >
+                            <td className="p-2 text-slate-500">{h.metadata?.actor_role ? `${h.metadata.actor_role}` : ""}</td>
+                            <td className={`p-2 text-right font-bold ${h.delta > 0 ? "text-green-600" : "text-red-600"}`}>
                               {h.delta > 0 ? `+${h.delta}` : h.delta}
                             </td>
                           </tr>
