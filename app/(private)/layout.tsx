@@ -25,11 +25,10 @@ export default function PrivateLayout({ children }: { children: React.ReactNode 
         return;
       }
 
-      // ✅ Rol por RPC (no depende de RLS de profiles)
+      // Rol por RPC (no depende de RLS de profiles)
       const { data: role, error } = await supabase.rpc("get_my_role");
       if (error) {
         console.error("get_my_role error:", error.message);
-        // si falla RPC, no asumimos "cliente": mejor forzar re-login
         await supabase.auth.signOut();
         router.replace("/login");
         return;
@@ -46,15 +45,23 @@ export default function PrivateLayout({ children }: { children: React.ReactNode 
     setMenuOpen(false);
   }, [pathname]);
 
+  // ✅ Rutas permitidas por rol
   const allowedByRole = useMemo(() => {
     return {
       delivery: ["/delivery", "/perfil"],
-      cliente: ["/dashboard", "/carta", "/mis-pedidos", "/perfil"],
+
+      // ✅ CLIENTE: agregamos /puntos
+      cliente: ["/dashboard", "/carta", "/mis-pedidos", "/puntos", "/perfil"],
+
+      // STAFF: solo panel limitado
       staff: ["/admin", "/admin/usuarios", "/admin/puntos", "/admin/pedidos"],
-      adminPreview: ["/dashboard", "/carta", "/mis-pedidos", "/perfil", "/delivery"],
+
+      // Admin preview (modo cliente)
+      adminPreview: ["/dashboard", "/carta", "/mis-pedidos", "/puntos", "/perfil", "/delivery"],
     } as const;
   }, []);
 
+  // Guard para roles no-panel
   useEffect(() => {
     if (checking) return;
     if (!userRole) return;
@@ -95,13 +102,11 @@ export default function PrivateLayout({ children }: { children: React.ReactNode 
         <PushNotifications />
         <div className="flex h-screen bg-slate-100 overflow-hidden">
           <Sidebar open={menuOpen} onClose={() => setMenuOpen(false)} role={userRole} />
-
           <div className="flex-1 flex flex-col h-screen relative w-full">
             <div className="lg:hidden p-4 bg-slate-900 text-white flex justify-between items-center shrink-0">
               <span className="font-bold">{isAdminPanel ? "Panel Admin" : "Panel Staff"}</span>
               <button onClick={() => setMenuOpen(true)}>☰</button>
             </div>
-
             <main className="flex-1 overflow-y-auto p-6">{children}</main>
           </div>
         </div>
