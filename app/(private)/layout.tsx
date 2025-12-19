@@ -25,15 +25,20 @@ export default function PrivateLayout({ children }: { children: React.ReactNode 
         return;
       }
 
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("role")
-        .eq("id", data.session.user.id)
-        .single();
+      // ✅ Rol por RPC (no depende de RLS de profiles)
+      const { data: role, error } = await supabase.rpc("get_my_role");
+      if (error) {
+        console.error("get_my_role error:", error.message);
+        // si falla RPC, no asumimos "cliente": mejor forzar re-login
+        await supabase.auth.signOut();
+        router.replace("/login");
+        return;
+      }
 
-      setUserRole((profile?.role || "cliente").toLowerCase());
+      setUserRole(String(role || "cliente").toLowerCase());
       setChecking(false);
     }
+
     checkSession();
   }, [router, supabase]);
 
@@ -41,7 +46,6 @@ export default function PrivateLayout({ children }: { children: React.ReactNode 
     setMenuOpen(false);
   }, [pathname]);
 
-  // ✅ Rutas permitidas por rol (bloqueo UX)
   const allowedByRole = useMemo(() => {
     return {
       delivery: ["/delivery", "/perfil"],
@@ -57,10 +61,9 @@ export default function PrivateLayout({ children }: { children: React.ReactNode 
 
     const isAdminPreview = userRole === "admin" && searchParams.get("preview") === "true";
 
-    // ADMIN real y STAFF: no bloqueamos acá (lo maneja el panel / rutas)
-    const isAdminView = userRole === "admin" && searchParams.get("preview") !== "true";
-    const isStaffView = userRole === "staff";
-    if (isAdminView || isStaffView) return;
+    const isAdminPanel = userRole === "admin" && searchParams.get("preview") !== "true";
+    const isStaffPanel = userRole === "staff";
+    if (isAdminPanel || isStaffPanel) return;
 
     const roleKey = isAdminPreview ? "adminPreview" : (userRole as "delivery" | "cliente");
     const allowed = (allowedByRole as any)[roleKey] ?? allowedByRole.cliente;
@@ -86,7 +89,6 @@ export default function PrivateLayout({ children }: { children: React.ReactNode 
   const isAdminPanel = userRole === "admin" && searchParams.get("preview") !== "true";
   const isStaffPanel = userRole === "staff";
 
-  // ✅ Panel (ADMIN o STAFF)
   if (isAdminPanel || isStaffPanel) {
     return (
       <>
@@ -107,7 +109,6 @@ export default function PrivateLayout({ children }: { children: React.ReactNode 
     );
   }
 
-  // ✅ Vista cliente / delivery / admin preview
   return (
     <>
       <PushNotifications />
