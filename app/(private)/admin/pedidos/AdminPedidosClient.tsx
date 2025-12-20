@@ -14,7 +14,7 @@ type Order = {
   creado_en: string;
   repartidor_nombre?: string | null;
   estado_source?: string | null;
-  source?: string | null; // Agregado para saber origen
+  source?: string | null;
 };
 
 type Profile = {
@@ -24,8 +24,8 @@ type Profile = {
   role: string;
 };
 
-// Modos de filtro para ADMIN
-type AdminFilterMode = "LIVE" | "DATE" | "ID";
+// Modos de filtro para ADMIN (Agregado 'ALL' para Visión General)
+type AdminFilterMode = "LIVE" | "DATE" | "ID" | "ALL";
 
 const ESTADOS = [
   "pendiente",
@@ -60,23 +60,19 @@ const estadoLeftBorder = (e?: string | null) =>
 // --- FECHAS Y HORARIOS ---
 const pad = (n: number) => String(n).padStart(2, "0");
 
-// Formato compatible con Postgres timestamp without time zone
 const pgLocal = (d: Date) =>
   `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(
     d.getMinutes()
   )}:${pad(d.getSeconds())}`;
 
-// Lógica de TURNO (Fudo Style): 
-// Si son las 01:00 AM del martes, el turno es el del Lunes a las 19:00.
 const getShiftStart = () => {
   const now = new Date();
   const d = new Date(now);
-  if (now.getHours() < 4) d.setDate(d.getDate() - 1); // Extendemos margen hasta las 4am por seguridad
+  if (now.getHours() < 4) d.setDate(d.getDate() - 1);
   d.setHours(19, 0, 0, 0);
   return pgLocal(d);
 };
 
-// Para filtrar un día específico completo (00:00 a 23:59)
 const getDayRange = (dateString: string) => {
   const start = new Date(dateString);
   start.setHours(0, 0, 0, 0);
@@ -102,11 +98,10 @@ export default function AdminPedidosClient() {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
   const [searchId, setSearchId] = useState("");
 
-  // Refs de control
   const isSyncingRef = useRef(false);
   const last429Ref = useRef<number | null>(null);
 
-  // 1. Enriquecer pedidos con nombres de repartidores
+  // --- 1. ENRICH (Nombres de repartidores) ---
   const enrich = async (orders: any[]) => {
     if (!orders.length) return [];
     const ids = orders.map((o) => o.id);
@@ -138,23 +133,19 @@ export default function AdminPedidosClient() {
     return orders.map((o) => ({ ...o, repartidor_nombre: byOrder[o.id] ?? null }));
   };
 
-  // 2. Cargar Pedidos (CEREBRO DEL FILTRO)
+  // --- 2. CARGAR PEDIDOS (CEREBRO) ---
   const cargarPedidos = async () => {
-    // Si aún no sabemos el rol, esperamos
     if (!myRole) return;
 
     let q = supabase.from("orders").select("*").order("id", { ascending: false });
 
-    // --- REGLAS DE NEGOCIO ---
-    
-    // A) REGLA PARA STAFF: Solo ve el turno actual. SIEMPRE.
+    // A) REGLA PARA STAFF: Solo ve el turno actual.
     if (myRole === "staff") {
       q = q.gte("creado_en", getShiftStart());
     } 
-    // B) REGLA PARA ADMIN: Según el modo elegido
+    // B) REGLA PARA ADMIN
     else {
       if (adminMode === "LIVE") {
-        // Modo "Live" ve lo mismo que el staff (turno actual) o últimas 24h
         q = q.gte("creado_en", getShiftStart());
       } else if (adminMode === "DATE") {
         const { start, end } = getDayRange(selectedDate);
@@ -162,10 +153,13 @@ export default function AdminPedidosClient() {
       } else if (adminMode === "ID") {
         const n = Number(searchId);
         if (!searchId || Number.isNaN(n)) {
-          setPedidos([]); // No buscar nada si ID es inválido
+          setPedidos([]); 
           return;
         }
         q = q.eq("id", n);
+      } else if (adminMode === "ALL") {
+        // VISIÓN GENERAL: Sin filtro de fecha, solo limitamos para performance
+        q = q.limit(200); 
       }
     }
 
@@ -178,11 +172,11 @@ export default function AdminPedidosClient() {
     setPedidos((await enrich(data ?? [])) as Order[]);
   };
 
-  // 3. Sincronización con Fudo
+  // --- 3. ACTIONS ---
+
   const syncFudo = async (forced?: boolean) => {
     const now = Date.now();
     if (isSyncingRef.current) return;
-    // Evitar spam si nos dio 429 recientemente
     if (!forced && last429Ref.current && now - last429Ref.current < 60000) return;
 
     try {
@@ -197,7 +191,60 @@ export default function AdminPedidosClient() {
     }
   };
 
-  // 4. Inicialización
+  // NUEVO: Función para BORRAR (Solo Admin)
+  const borrarPedido = async (id: number) => {
+    const confirmacion = window.confirm(`⚠️ ¿ELIMINAR PEDIDO #${id}?\n\nEsta acción no se puede deshacer. Se borrará de la base de datos permanentemente.`);
+    
+    if (!confirmacion) return;
+
+    // Intentamos borrar
+    const { error } = await supabase.from('orders').delete().eq('id', id);
+
+    if (error) {
+      alert(`Error al borrar: ${error.message}\nPosiblemente tenga datos relacionados.`);
+    } else {
+      // Actualizamos UI localmente rápido
+      setPedidos(prev => prev.filter(p => p.id !== id));
+      // Recargamos por seguridad
+      setTimeout(cargarPedidos, 500);
+    }
+  };
+
+  const asignarDelivery = async (orderId: number, deliveryUserId: string) => {
+    if (!deliveryUserId) return alert("Seleccioná un repartidor primero");
+    await fetch("/api/delivery/assign", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ orderId, deliveryUserId }),
+    });
+    await cargarPedidos();
+  };
+
+  const cambiarEstado = async (id: number, estado: string) => {
+    setPedidos((p) => p.map((o) => (o.id === id ? { ...o, estado } : o)));
+
+    try {
+      await updateOrderStatus({
+        orderId: id,
+        estado,
+        source: myRole === "staff" ? "APP_STAFF" : "APP_ADMIN",
+      });
+
+      if (["enviado", "entregado", "cancelado"].includes(estado)) {
+        await fetch("/api/push/notify-order-status", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ orderId: id, estado }),
+        });
+      }
+    } catch (e: any) {
+      console.error(e);
+      await cargarPedidos();
+      alert("Error al actualizar estado.");
+    }
+  };
+
+  // --- 4. INIT ---
   useEffect(() => {
     (async () => {
       const { data: session } = await supabase.auth.getSession();
@@ -210,25 +257,21 @@ export default function AdminPedidosClient() {
         .single();
 
       const r = String(profile?.role || "").toLowerCase();
-      // Definimos rol estricto para lógica interna
       const finalRole = r === "staff" ? "staff" : "admin";
       setMyRole(finalRole);
 
-      // Cargar lista de repartidores disponibles
       const { data } = await supabase.from("profiles").select("*").eq("role", "delivery");
       setRepartidores(data ?? []);
       
       setLoading(false);
     })();
 
-    // Suscripción Realtime para cambios
     const ch = supabase
       .channel("admin-live")
       .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => cargarPedidos())
       .on("postgres_changes", { event: "*", schema: "public", table: "deliveries" }, () => cargarPedidos())
       .subscribe();
 
-    // Auto-sync Fudo cada 30s si la tab está activa
     const i = setInterval(() => {
       if (document.visibilityState === "visible") syncFudo();
     }, 30000);
@@ -240,50 +283,11 @@ export default function AdminPedidosClient() {
     // eslint-disable-next-line
   }, []);
 
-  // Recargar si cambian los filtros o el rol se define
   useEffect(() => {
     if (!loading && myRole) cargarPedidos();
     // eslint-disable-next-line
   }, [adminMode, selectedDate, searchId, myRole, loading]);
 
-
-  // 5. Acciones (Asignar / Cambiar Estado)
-  const asignarDelivery = async (orderId: number, deliveryUserId: string) => {
-    if (!deliveryUserId) return alert("Seleccioná un repartidor primero");
-    // Feedback optimista visual (opcional) o esperar recarga
-    await fetch("/api/delivery/assign", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ orderId, deliveryUserId }),
-    });
-    await cargarPedidos();
-  };
-
-  const cambiarEstado = async (id: number, estado: string) => {
-    // Optimistic UI update
-    setPedidos((p) => p.map((o) => (o.id === id ? { ...o, estado } : o)));
-
-    try {
-      await updateOrderStatus({
-        orderId: id,
-        estado,
-        source: myRole === "staff" ? "APP_STAFF" : "APP_ADMIN",
-      });
-
-      // Notificar Push si corresponde
-      if (["enviado", "entregado", "cancelado"].includes(estado)) {
-        await fetch("/api/push/notify-order-status", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ orderId: id, estado }),
-        });
-      }
-    } catch (e: any) {
-      console.error(e);
-      await cargarPedidos(); // Revertir si falla
-      alert("Error al actualizar estado.");
-    }
-  };
 
   // --- RENDER ---
 
@@ -292,7 +296,7 @@ export default function AdminPedidosClient() {
   return (
     <div className="p-4 md:p-6 space-y-6 pb-32 max-w-7xl mx-auto font-sans">
       
-      {/* HEADER SUPERIOR */}
+      {/* HEADER */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-100 pb-4">
         <div>
             <h1 className="text-2xl font-black text-slate-800 tracking-tight">
@@ -322,30 +326,38 @@ export default function AdminPedidosClient() {
         </div>
       </div>
 
-      {/* BARRA DE FILTROS (Solo visible si es ADMIN, Staff tiene filtro fijo) */}
+      {/* FILTROS (SOLO ADMIN) */}
       {myRole === 'admin' && (
-        <div className="bg-slate-900 text-white rounded-xl p-3 shadow-lg shadow-slate-200 flex flex-col md:flex-row gap-4 items-center justify-between">
+        <div className="bg-slate-900 text-white rounded-xl p-3 shadow-lg shadow-slate-200 flex flex-col xl:flex-row gap-4 items-center justify-between">
             
-            <div className="flex gap-2 bg-slate-800 p-1 rounded-lg">
+            <div className="flex flex-wrap gap-2 bg-slate-800 p-1 rounded-lg">
                 <button
                     onClick={() => setAdminMode("LIVE")}
-                    className={`px-4 py-1.5 text-xs font-bold rounded-md transition-colors ${
+                    className={`px-3 py-1.5 text-[10px] md:text-xs font-bold rounded-md transition-colors ${
                         adminMode === "LIVE" ? "bg-white text-slate-900 shadow-sm" : "text-slate-400 hover:text-white"
                     }`}
                 >
                     TURNO ACTUAL
                 </button>
                 <button
+                    onClick={() => setAdminMode("ALL")}
+                    className={`px-3 py-1.5 text-[10px] md:text-xs font-bold rounded-md transition-colors ${
+                        adminMode === "ALL" ? "bg-indigo-500 text-white shadow-sm" : "text-slate-400 hover:text-white"
+                    }`}
+                >
+                    VISIÓN GENERAL
+                </button>
+                <button
                     onClick={() => setAdminMode("DATE")}
-                    className={`px-4 py-1.5 text-xs font-bold rounded-md transition-colors ${
+                    className={`px-3 py-1.5 text-[10px] md:text-xs font-bold rounded-md transition-colors ${
                         adminMode === "DATE" ? "bg-white text-slate-900 shadow-sm" : "text-slate-400 hover:text-white"
                     }`}
                 >
-                    HISTORIAL POR FECHA
+                    POR FECHA
                 </button>
                 <button
                     onClick={() => setAdminMode("ID")}
-                    className={`px-4 py-1.5 text-xs font-bold rounded-md transition-colors ${
+                    className={`px-3 py-1.5 text-[10px] md:text-xs font-bold rounded-md transition-colors ${
                         adminMode === "ID" ? "bg-white text-slate-900 shadow-sm" : "text-slate-400 hover:text-white"
                     }`}
                 >
@@ -353,10 +365,12 @@ export default function AdminPedidosClient() {
                 </button>
             </div>
 
-            {/* Controles dinámicos según el modo Admin */}
-            <div className="flex-1 flex justify-end">
+            <div className="flex-1 flex justify-end w-full md:w-auto">
                 {adminMode === "LIVE" && (
                     <span className="text-xs text-slate-400 font-mono">Mostrando pedidos desde las 19:00hs</span>
+                )}
+                 {adminMode === "ALL" && (
+                    <span className="text-xs text-indigo-300 font-mono font-bold">⚠️ Mostrando TODO el historial (Últimos 200)</span>
                 )}
 
                 {adminMode === "DATE" && (
@@ -369,12 +383,12 @@ export default function AdminPedidosClient() {
                 )}
 
                 {adminMode === "ID" && (
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 w-full md:w-auto">
                         <input 
                             value={searchId}
                             onChange={(e) => setSearchId(e.target.value)}
-                            placeholder="# ID Pedido"
-                            className="bg-slate-800 border border-slate-700 text-white text-sm rounded px-3 py-1.5 w-32 focus:outline-none focus:border-slate-500"
+                            placeholder="# ID"
+                            className="bg-slate-800 border border-slate-700 text-white text-sm rounded px-3 py-1.5 w-full md:w-32 focus:outline-none focus:border-slate-500"
                             onKeyDown={(e) => e.key === 'Enter' && cargarPedidos()}
                         />
                         <button 
@@ -389,11 +403,11 @@ export default function AdminPedidosClient() {
         </div>
       )}
 
-      {/* LISTA DE PEDIDOS */}
+      {/* LISTA */}
       <div className="grid gap-4">
         {pedidos.length === 0 ? (
             <div className="text-center py-20 bg-slate-50 rounded-xl border border-dashed border-slate-200">
-                <p className="text-slate-400 font-medium">No hay pedidos para mostrar en esta vista.</p>
+                <p className="text-slate-400 font-medium">No se encontraron pedidos.</p>
                 {myRole === 'staff' && <p className="text-xs text-slate-300 mt-2">Esperando pedidos del turno actual...</p>}
             </div>
         ) : (
@@ -402,17 +416,28 @@ export default function AdminPedidosClient() {
                 key={p.id} 
                 className={`bg-white border rounded-xl p-4 md:p-5 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden ${estadoLeftBorder(p.estado)}`}
             >
-                {/* Cabecera Card */}
+                {/* Cabecera */}
                 <div className="flex flex-wrap justify-between items-start gap-3 mb-3">
                     <div className="flex items-center gap-2">
                         <span className="bg-slate-800 text-white px-2 py-0.5 rounded text-xs font-mono font-bold">#{p.id}</span>
                         <h3 className="font-bold text-slate-800 text-lg leading-tight">{p.cliente_nombre || "Cliente Anónimo"}</h3>
                     </div>
+                    
                     <div className="flex items-center gap-2">
-                         {/* Badge de Estado Visual */}
                         <span className={`px-3 py-1 text-[11px] font-bold uppercase tracking-wide rounded-full border ${estadoBadgeClass(p.estado)}`}>
                             {p.estado}
                         </span>
+                        
+                        {/* 🗑️ BOTÓN DE BORRAR (SOLO ADMIN) */}
+                        {myRole === 'admin' && (
+                            <button 
+                                onClick={() => borrarPedido(p.id)}
+                                className="ml-2 text-slate-300 hover:text-red-600 transition-colors p-1"
+                                title="Eliminar Pedido permanentemente"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                            </button>
+                        )}
                     </div>
                 </div>
 
@@ -441,10 +466,9 @@ export default function AdminPedidosClient() {
                     </div>
                 </div>
 
-                {/* Footer de Acciones */}
+                {/* Footer Acciones */}
                 <div className="pt-4 border-t border-slate-50 flex flex-wrap gap-3 items-center justify-between bg-slate-50/50 -mx-5 -mb-5 p-4 mt-2">
                     
-                    {/* Selector de Repartidor */}
                     <div className="flex items-center gap-2 bg-white border rounded-lg p-1 shadow-sm">
                         <div className="px-2">
                             <span className="text-xs text-slate-400 uppercase font-bold mr-1">MOTO:</span>
@@ -467,7 +491,6 @@ export default function AdminPedidosClient() {
                         </select>
                     </div>
 
-                    {/* Selector de Estado */}
                     <div className="flex items-center gap-2">
                         <span className="text-[10px] text-slate-400 font-bold uppercase hidden md:inline">Estado:</span>
                         <select
