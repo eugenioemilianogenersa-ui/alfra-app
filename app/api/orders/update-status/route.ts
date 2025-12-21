@@ -168,7 +168,7 @@ export async function POST(req: NextRequest) {
 
     const currentEstado = normEstado(order.estado) ?? "pendiente";
 
-    // ✅ Idempotente: si el estado ya es el mismo, OK (evita 409 por “re-aplicar”)
+    // ✅ Idempotente: si el estado ya es el mismo, OK
     if (currentEstado === nextEstado) {
       return NextResponse.json({ ok: true, orderId: id, estado: nextEstado, noop: true });
     }
@@ -191,13 +191,15 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Anti-rollback (se mantiene)
-    const allowed = TRANSICIONES[currentEstado] ?? [];
-    if (!allowed.includes(nextEstado)) {
-      return NextResponse.json(
-        { error: "Transición inválida", current: currentEstado, next: nextEstado },
-        { status: 409 }
-      );
+    // ✅ Anti-rollback SOLO para NO-ADMIN (STAFF y DELIVERY siguen igual)
+    if (!isAdmin) {
+      const allowed = TRANSICIONES[currentEstado] ?? [];
+      if (!allowed.includes(nextEstado)) {
+        return NextResponse.json(
+          { error: "Transición inválida", current: currentEstado, next: nextEstado },
+          { status: 409 }
+        );
+      }
     }
 
     const now = new Date().toISOString();
@@ -227,7 +229,7 @@ export async function POST(req: NextRequest) {
         actor_user_id: user.id,
         actor_role: role,
         source,
-        metadata: { actor_user_id: user.id, actor_role: role, source },
+        metadata: { actor_user_id: user.id, actor_role: role, source, admin_override: isAdmin },
       });
     } catch (e) {
       console.warn("order_status_log insert skipped:", e);
