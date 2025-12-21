@@ -10,6 +10,9 @@ type Order = {
   direccion_entrega: string;
   monto: number;
   estado: string;
+  // Agregamos fecha y telefono
+  creado_en: string;
+  cliente_phone_normalized?: string | null;
 };
 
 type DeliveryItem = {
@@ -20,60 +23,56 @@ type DeliveryItem = {
 
 const ACTIVE_STATES = ["pendiente", "en preparación", "listo para entregar", "enviado"];
 
+// --- HELPERS VISUALES ---
 function estadoBadgeClass(estado?: string | null) {
   switch (estado) {
-    case "pendiente":
-      return "bg-slate-200 text-slate-800 border-slate-300";
-    case "en preparación":
-      return "bg-orange-100 text-orange-800 border-orange-200";
-    case "listo para entregar":
-      return "bg-blue-100 text-blue-800 border-blue-200";
-    case "enviado":
-      return "bg-yellow-100 text-yellow-900 border-yellow-300";
-    case "entregado":
-      return "bg-emerald-100 text-emerald-800 border-emerald-200";
-    case "cancelado":
-      return "bg-red-100 text-red-900 border-red-300";
-    default:
-      return "bg-slate-200 text-slate-800 border-slate-300";
+    case "pendiente": return "bg-slate-200 text-slate-800 border-slate-300";
+    case "en preparación": return "bg-orange-100 text-orange-800 border-orange-200";
+    case "listo para entregar": return "bg-blue-100 text-blue-800 border-blue-200";
+    case "enviado": return "bg-yellow-100 text-yellow-900 border-yellow-300";
+    case "entregado": return "bg-emerald-100 text-emerald-800 border-emerald-200";
+    case "cancelado": return "bg-red-100 text-red-900 border-red-300";
+    default: return "bg-slate-200 text-slate-800 border-slate-300";
   }
 }
 
 function estadoHeaderClass(estado?: string | null) {
   switch (estado) {
-    case "pendiente":
-      return "bg-slate-800";
-    case "en preparación":
-      return "bg-orange-600";
-    case "listo para entregar":
-      return "bg-blue-700";
-    case "enviado":
-      return "bg-yellow-600";
-    case "entregado":
-      return "bg-emerald-700";
-    case "cancelado":
-      return "bg-red-700";
-    default:
-      return "bg-slate-800";
+    case "pendiente": return "bg-slate-800";
+    case "en preparación": return "bg-orange-600";
+    case "listo para entregar": return "bg-blue-700";
+    case "enviado": return "bg-yellow-600";
+    case "entregado": return "bg-emerald-700";
+    case "cancelado": return "bg-red-700";
+    default: return "bg-slate-800";
   }
 }
 
 function estadoRingClass(estado?: string | null) {
   switch (estado) {
-    case "en preparación":
-      return "ring-2 ring-orange-400";
-    case "listo para entregar":
-      return "ring-2 ring-blue-400";
-    case "enviado":
-      return "ring-2 ring-yellow-400";
-    case "entregado":
-      return "ring-2 ring-emerald-400";
-    case "cancelado":
-      return "ring-2 ring-red-400";
-    default:
-      return "";
+    case "en preparación": return "ring-2 ring-orange-400";
+    case "listo para entregar": return "ring-2 ring-blue-400";
+    case "enviado": return "ring-2 ring-yellow-400";
+    case "entregado": return "ring-2 ring-emerald-400";
+    case "cancelado": return "ring-2 ring-red-400";
+    default: return "";
   }
 }
+
+// Helper para fecha Argentina corregida
+const formatFechaArgentina = (fechaString: string) => {
+  if (!fechaString) return "";
+  // Truco: Si viene sin 'Z' (timestamp without time zone), le agregamos 'Z'
+  // para que JS sepa que es UTC y lo convierta a local (Argentina)
+  const fecha = new Date(fechaString.endsWith("Z") ? fechaString : fechaString + "Z");
+  return fecha.toLocaleString("es-AR", {
+    timeZone: "America/Argentina/Cordoba",
+    hour: "2-digit",
+    minute: "2-digit",
+    day: "2-digit",
+    month: "2-digit",
+  });
+};
 
 export default function DeliveryClient() {
   const supabase = createClient();
@@ -91,14 +90,11 @@ export default function DeliveryClient() {
     const init = async () => {
       const { data } = await supabase.auth.getUser();
       const uid = data.user?.id ?? null;
-
       setMyUserId(uid);
-
       if (!uid) {
         setLoading(false);
         return;
       }
-
       await fetchMyDeliveries(uid);
       setLoading(false);
     };
@@ -107,29 +103,23 @@ export default function DeliveryClient() {
 
     const channel = supabase
       .channel("delivery-live")
-      .on("postgres_changes", { event: "*", schema: "public", table: "deliveries" }, () => {
-        if (myUserId) fetchMyDeliveries(myUserId);
-      })
-      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => {
-        if (myUserId) fetchMyDeliveries(myUserId);
-      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "deliveries" }, () => { if (myUserId) fetchMyDeliveries(myUserId); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => { if (myUserId) fetchMyDeliveries(myUserId); })
       .subscribe();
 
     return () => {
       stopTracking();
       supabase.removeChannel(channel);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line
   }, [myUserId]);
 
   const fetchMyDeliveries = async (uid: string) => {
     try {
-      const { data: misAsignaciones, error: asignError } = await supabase
+      const { data: misAsignaciones } = await supabase
         .from("deliveries")
         .select("id, order_id, delivery_user_id")
         .eq("delivery_user_id", uid);
-
-      if (asignError) console.error("Error deliveries:", asignError);
 
       if (!misAsignaciones || misAsignaciones.length === 0) {
         setItems([]);
@@ -140,14 +130,12 @@ export default function DeliveryClient() {
 
       const orderIds = misAsignaciones.map((d) => d.order_id);
 
-      const { data: ordenesDetalle, error: ordError } = await supabase
+      const { data: ordenesDetalle } = await supabase
         .from("orders")
         .select("*")
         .in("id", orderIds)
         .in("estado", ACTIVE_STATES)
         .order("id", { ascending: false });
-
-      if (ordError) console.error("Error orders:", ordError);
 
       const listaFinal: DeliveryItem[] = [];
       misAsignaciones.forEach((asignacion) => {
@@ -166,18 +154,14 @@ export default function DeliveryClient() {
       const active = listaFinal.find((d) => d.orders.estado === "enviado");
       if (active && !isTracking) startTracking(active.id);
       else if (!active && isTracking) stopTracking();
-    } catch (error: any) {
-      console.error("Error fetchMyDeliveries:", error);
+    } catch (error) {
+      console.error(error);
     } finally {
       setLoading(false);
     }
   };
 
   const startTracking = (deliveryTableId: number) => {
-    if (!deliveryTableId) {
-      console.error("❌ startTracking sin delivery_id");
-      return;
-    }
     if (!navigator.geolocation) {
       setGpsError("Tu navegador no soporta GPS.");
       return;
@@ -188,37 +172,22 @@ export default function DeliveryClient() {
     setIsTracking(true);
     setGpsError(null);
 
-    const options: PositionOptions = {
-      enableHighAccuracy: true,
-      timeout: 20000,
-      maximumAge: 0,
-    };
-
+    const options: PositionOptions = { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 };
     const id = navigator.geolocation.watchPosition(
       async (position) => {
         setGpsError(null);
         const { latitude, longitude } = position.coords;
-
         const did = deliveryIdActiveRef.current;
-        if (!did) {
-          console.error("❌ GPS tick sin delivery_id");
-          return;
-        }
+        if (!did) return;
 
-        await supabase.from("delivery_locations").insert({
-          delivery_id: did,
-          lat: latitude,
-          lng: longitude,
-        });
+        await supabase.from("delivery_locations").insert({ delivery_id: did, lat: latitude, lng: longitude });
       },
       (err) => {
-        console.error("Error GPS:", err);
-        const msg = (err as GeolocationPositionError).message || "Problema con GPS (¿sin HTTPS?).";
+        const msg = (err as GeolocationPositionError).message || "Error GPS.";
         setGpsError(`Problema con GPS: ${msg}`);
       },
       options
     );
-
     watchIdRef.current = id;
   };
 
@@ -233,47 +202,26 @@ export default function DeliveryClient() {
   };
 
   const handleComenzarViaje = async (orderId: number) => {
-    setItems((prev) =>
-      prev.map((item) =>
-        item.orders.id === orderId ? { ...item, orders: { ...item.orders, estado: "enviado" } } : item
-      )
-    );
-
+    setItems((prev) => prev.map((item) => item.orders.id === orderId ? { ...item, orders: { ...item.orders, estado: "enviado" } } : item));
     try {
       await updateOrderStatus({ orderId, estado: "enviado", source: "APP_DELIVERY" });
-
-      await fetch("/api/push/notify-order-status", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderId, estado: "enviado" }),
-      });
-    } catch (e: any) {
-      console.error(e?.message || e);
-      if (myUserId) await fetchMyDeliveries(myUserId);
-      alert("No se pudo marcar como ENVIADO. Reintentá.");
+      await fetch("/api/push/notify-order-status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderId, estado: "enviado" }) });
+    } catch {
+        if (myUserId) await fetchMyDeliveries(myUserId);
+        alert("Error al iniciar viaje.");
     }
   };
 
   const handleEntregar = async (orderId: number) => {
-    const confirmEntregar = window.confirm("¿Pedido entregado?");
-    if (!confirmEntregar) return;
-
+    if (!window.confirm("¿Pedido entregado?")) return;
     setItems((prev) => prev.filter((item) => item.orders.id !== orderId));
-
     try {
       await updateOrderStatus({ orderId, estado: "entregado", source: "APP_DELIVERY" });
-
-      await fetch("/api/push/notify-order-status", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderId, estado: "entregado" }),
-      });
-
+      await fetch("/api/push/notify-order-status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderId, estado: "entregado" }) });
       stopTracking();
-    } catch (e: any) {
-      console.error(e?.message || e);
-      if (myUserId) await fetchMyDeliveries(myUserId);
-      alert("No se pudo marcar como ENTREGADO. Reintentá.");
+    } catch {
+        if (myUserId) await fetchMyDeliveries(myUserId);
+        alert("Error al finalizar entrega.");
     }
   };
 
@@ -283,18 +231,10 @@ export default function DeliveryClient() {
     <div className="p-4 pb-24 space-y-4 bg-slate-50 min-h-screen">
       <div className="flex justify-between items-center">
         <h1 className="text-xl font-bold text-slate-800">🛵 Panel Repartidor</h1>
-        {isTracking && (
-          <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-1 rounded border border-emerald-200 animate-pulse">
-            ● GPS ACTIVO
-          </span>
-        )}
+        {isTracking && <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-1 rounded border border-emerald-200 animate-pulse">● GPS ACTIVO</span>}
       </div>
 
-      {gpsError && (
-        <div className="bg-red-100 border border-red-300 text-red-700 p-3 rounded text-sm">
-          ⚠️ {gpsError}
-        </div>
-      )}
+      {gpsError && <div className="bg-red-100 border border-red-300 text-red-700 p-3 rounded text-sm">⚠️ {gpsError}</div>}
 
       {items.length === 0 && (
         <div className="text-center py-10 text-slate-400 border-2 border-dashed rounded-xl bg-white">
@@ -304,55 +244,62 @@ export default function DeliveryClient() {
 
       {items.map((item) => {
         const order = item.orders;
+        const phone = order.cliente_phone_normalized;
 
         return (
           <div key={item.id} className={`border rounded-xl shadow-sm overflow-hidden bg-white ${estadoRingClass(order.estado)}`}>
+            {/* Header Card */}
             <div className={`${estadoHeaderClass(order.estado)} text-white p-4 flex justify-between items-center`}>
               <span className="font-bold text-lg">#{order.id}</span>
-
-              <span
-                className={`text-[11px] px-2 py-1 rounded-full uppercase font-bold border ${estadoBadgeClass(order.estado)}`}
-                style={{ backgroundColor: "rgba(255,255,255,0.9)" }}
-              >
+              <span className={`text-[11px] px-2 py-1 rounded-full uppercase font-bold border ${estadoBadgeClass(order.estado)}`} style={{ backgroundColor: "rgba(255,255,255,0.9)" }}>
                 {order.estado}
               </span>
             </div>
 
-            <div className="p-4 space-y-2">
-              <p className="text-lg font-bold text-slate-800">{order.cliente_nombre}</p>
-              <p className="text-sm text-slate-600">📍 {order.direccion_entrega}</p>
-
-              <div className="pt-2 flex justify-between items-center">
-                <p className="text-2xl text-emerald-600 font-bold">${order.monto}</p>
-                <a
-                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-                    (order.direccion_entrega || "") + " Coronel Moldes Cordoba"
-                  )}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-700 text-xs underline"
-                >
-                  Abrir Mapa
-                </a>
+            {/* Info Body */}
+            <div className="p-4 space-y-3">
+              <div>
+                <p className="text-lg font-bold text-slate-800 leading-tight">{order.cliente_nombre}</p>
+                <div className="flex items-center gap-1 text-slate-500 text-xs mt-1">
+                    <span>🕒</span>
+                    <span>Cargado: {formatFechaArgentina(order.creado_en)}</span>
+                </div>
               </div>
+              
+              <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
+                  <p className="text-sm text-slate-700 font-medium">📍 {order.direccion_entrega}</p>
+                  <div className="flex justify-between items-center mt-2">
+                     <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent((order.direccion_entrega || "") + " Coronel Moldes Cordoba")}`} target="_blank" rel="noopener noreferrer" className="text-blue-600 text-xs font-bold underline flex items-center gap-1">
+                        🗺️ Abrir Mapa
+                     </a>
+                     <p className="text-xl text-emerald-600 font-bold">${order.monto}</p>
+                  </div>
+              </div>
+
+              {/* Botones de Contacto (Solo si hay teléfono) */}
+              {phone && (
+                  <div className="grid grid-cols-2 gap-2">
+                      <a href={`tel:${phone}`} className="flex items-center justify-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 py-2 rounded-lg text-sm font-bold transition-colors">
+                          📞 Llamar
+                      </a>
+                      <a href={`https://wa.me/${phone.replace(/\+/g, '').replace(/\s/g, '')}`} target="_blank" rel="noreferrer" className="flex items-center justify-center gap-2 bg-green-100 hover:bg-green-200 text-green-800 py-2 rounded-lg text-sm font-bold transition-colors">
+                          💬 WhatsApp
+                      </a>
+                  </div>
+              )}
             </div>
 
+            {/* Actions Footer */}
             <div className="p-3 bg-slate-50 border-t">
               {order.estado !== "enviado" && (
-                <button
-                  onClick={() => handleComenzarViaje(order.id)}
-                  className="w-full bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700 text-black font-extrabold py-3 rounded-lg shadow transition-transform active:scale-95"
-                >
-                  🚀 SALIR
+                <button onClick={() => handleComenzarViaje(order.id)} className="w-full bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700 text-black font-extrabold py-3 rounded-lg shadow transition-transform active:scale-95">
+                  🚀 SALIR HACIA CLIENTE
                 </button>
               )}
 
               {order.estado === "enviado" && (
-                <button
-                  onClick={() => handleEntregar(order.id)}
-                  className="w-full bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-extrabold py-3 rounded-lg shadow transition-transform active:scale-95"
-                >
-                  ✅ ENTREGAR
+                <button onClick={() => handleEntregar(order.id)} className="w-full bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-extrabold py-3 rounded-lg shadow transition-transform active:scale-95">
+                  ✅ CONFIRMAR ENTREGA
                 </button>
               )}
             </div>
