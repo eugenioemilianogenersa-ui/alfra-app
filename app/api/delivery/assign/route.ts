@@ -30,10 +30,10 @@ export async function POST(req: Request) {
       | string
       | null;
 
-    // 1) Validar que el usuario exista y sea repartidor
+    // 1) Validar que el usuario exista y sea repartidor + armar nombre
     const { data: user, error: userErr } = await supabaseAdmin
       .from("profiles")
-      .select("id, display_name, role")
+      .select("id, display_name, email, role")
       .eq("id", deliveryUserId)
       .single();
 
@@ -44,7 +44,28 @@ export async function POST(req: Request) {
       );
     }
 
-    // 2) Crear / actualizar asignación en deliveries
+    const deliveryNombre =
+      user.display_name || (user.email ? user.email.split("@")[0] : null) || "Repartidor";
+
+    // 2) Guardar en ORDERS (DENORMALIZADO) -> para que STAFF lo vea sin joins/RLS
+    //    IMPORTANTÍSIMO: NO TOCAR estado acá.
+    const { error: orderUpdErr } = await supabaseAdmin
+      .from("orders")
+      .update({
+        delivery_user_id: deliveryUserId,
+        delivery_nombre: deliveryNombre,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", orderId);
+
+    if (orderUpdErr) {
+      return NextResponse.json(
+        { ok: false, error: orderUpdErr.message },
+        { status: 500 }
+      );
+    }
+
+    // 3) Crear / actualizar asignación en DELIVERIES (si la seguís usando)
     const { error: upsertErr } = await supabaseAdmin
       .from("deliveries")
       .upsert(
@@ -62,12 +83,6 @@ export async function POST(req: Request) {
         { status: 500 }
       );
     }
-
-    // 3) Actualizar estado del pedido (no tocamos estado_source para no romper tu lógica)
-    await supabaseAdmin
-      .from("orders")
-      .update({ estado: "en preparación" })
-      .eq("id", orderId);
 
     // 4) PUSH al delivery SOLO si es nueva asignación o cambió el repartidor
     const shouldNotify = !prevDeliveryUserId || prevDeliveryUserId !== deliveryUserId;
@@ -90,7 +105,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       ok: true,
-      repartidor: user.display_name,
+      repartidor: deliveryNombre,
       message: "Pedido asignado correctamente",
       notified: shouldNotify,
     });

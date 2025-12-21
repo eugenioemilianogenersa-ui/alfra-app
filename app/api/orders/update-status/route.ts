@@ -168,6 +168,11 @@ export async function POST(req: NextRequest) {
 
     const currentEstado = normEstado(order.estado) ?? "pendiente";
 
+    // ✅ Idempotente: si el estado ya es el mismo, OK (evita 409 por “re-aplicar”)
+    if (currentEstado === nextEstado) {
+      return NextResponse.json({ ok: true, orderId: id, estado: nextEstado, noop: true });
+    }
+
     // Delivery: debe estar asignado y solo puede enviado/entregado
     if (isDelivery) {
       const { data: link, error: linkErr } = await supabaseAdmin
@@ -186,7 +191,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Anti-rollback
+    // Anti-rollback (se mantiene)
     const allowed = TRANSICIONES[currentEstado] ?? [];
     if (!allowed.includes(nextEstado)) {
       return NextResponse.json(
@@ -214,7 +219,6 @@ export async function POST(req: NextRequest) {
     }
 
     // Auditoría (si existe tabla)
-    // Si la tabla no existe aún, este insert va a fallar silencioso en logs, pero NO rompe el update.
     try {
       await supabaseAdmin.from("order_status_log").insert({
         order_id: id,
