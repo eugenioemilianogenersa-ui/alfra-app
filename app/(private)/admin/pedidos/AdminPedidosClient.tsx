@@ -58,9 +58,9 @@ const estadoLeftBorder = (e?: string | null) =>
 
 const pad = (n: number) => String(n).padStart(2, "0");
 const pgLocal = (d: Date) =>
-  `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(
-    d.getHours()
-  )}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(
+    d.getMinutes()
+  )}:${pad(d.getSeconds())}`;
 
 const getShiftStart = () => {
   const now = new Date();
@@ -90,28 +90,38 @@ const formatFechaArgentina = (fechaString: string) => {
   });
 };
 
-// --- HELPER WHATSAPP ---
 const crearLinkWhatsApp = (numeroRaw?: string | null) => {
   if (!numeroRaw) return "#";
   let limpio = numeroRaw.replace(/\D/g, "");
-  if (!limpio.startsWith("54")) {
-    limpio = `549${limpio}`;
-  }
+  if (!limpio.startsWith("54")) limpio = `549${limpio}`;
   return `https://wa.me/${limpio}`;
 };
 
 export default function AdminPedidosClient() {
   const supabase = createClient();
+
   const [pedidos, setPedidos] = useState<Order[]>([]);
   const [repartidores, setRepartidores] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncingFudo, setSyncingFudo] = useState(false);
+
   const [myRole, setMyRole] = useState<"admin" | "staff" | null>(null);
+
   const [adminMode, setAdminMode] = useState<AdminFilterMode>("LIVE");
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
   const [searchId, setSearchId] = useState("");
+
   const isSyncingRef = useRef(false);
   const last429Ref = useRef<number | null>(null);
+
+  // ✅ debounce para no spamear queries en realtime
+  const refreshTimerRef = useRef<number | null>(null);
+  const scheduleRefresh = (ms = 250) => {
+    if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current);
+    refreshTimerRef.current = window.setTimeout(() => {
+      cargarPedidos();
+    }, ms);
+  };
 
   const cargarRepartidores = async () => {
     try {
@@ -147,7 +157,7 @@ export default function AdminPedidosClient() {
       else if (d.delivery_user_id) orderToName[d.order_id] = "Repartidor (Cargando...)";
     });
 
-    // IMPORTANTE: no pisamos delivery_nombre; solo agregamos repartidor_nombre (fallback)
+    // no pisar delivery_nombre (denormalizado en orders), solo fallback
     return orders.map((o) => ({ ...o, repartidor_nombre: orderToName[o.id] ?? null }));
   };
 
@@ -259,10 +269,27 @@ export default function AdminPedidosClient() {
       setLoading(false);
     })();
 
-    const ch = supabase
+    // ✅ Realtime “instantáneo” con debounce + (intento de filtro para STAFF)
+    const shiftStart = getShiftStart();
+    const ordersFilter =
+      // si supabase soporta filter en realtime, esto reduce ruido para STAFF
+      // si no lo soporta en tu proyecto, igual queda el debounce y el query filtra.
+      `creado_en=gte.${shiftStart}`;
+
+    const channel = supabase
       .channel("admin-live")
-      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => cargarPedidos())
-      .on("postgres_changes", { event: "*", schema: "public", table: "deliveries" }, () => cargarPedidos())
+      .on(
+        "postgres_changes",
+        myRole === "staff"
+          ? ({ event: "*", schema: "public", table: "orders", filter: ordersFilter } as any)
+          : ({ event: "*", schema: "public", table: "orders" } as any),
+        () => scheduleRefresh(250)
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "deliveries" },
+        () => scheduleRefresh(250)
+      )
       .subscribe();
 
     const i = setInterval(() => {
@@ -270,7 +297,9 @@ export default function AdminPedidosClient() {
     }, 30000);
 
     return () => {
-      supabase.removeChannel(ch);
+      if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = null;
+      supabase.removeChannel(channel);
       clearInterval(i);
     };
     // eslint-disable-next-line
