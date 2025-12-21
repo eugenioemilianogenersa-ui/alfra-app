@@ -58,9 +58,9 @@ const estadoLeftBorder = (e?: string | null) =>
 
 const pad = (n: number) => String(n).padStart(2, "0");
 const pgLocal = (d: Date) =>
-  `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(
-    d.getMinutes()
-  )}:${pad(d.getSeconds())}`;
+  `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(
+    d.getHours()
+  )}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 
 const getShiftStart = () => {
   const now = new Date();
@@ -369,7 +369,10 @@ export default function AdminPedidosClient() {
                   className="bg-slate-800 border border-slate-700 text-white text-sm rounded px-3 py-1.5 w-full md:w-32 focus:outline-none"
                   onKeyDown={(e) => e.key === "Enter" && cargarPedidos()}
                 />
-                <button onClick={() => cargarPedidos()} className="bg-white text-slate-900 px-3 py-1.5 rounded text-xs font-bold hover:bg-slate-200">
+                <button
+                  onClick={() => cargarPedidos()}
+                  className="bg-white text-slate-900 px-3 py-1.5 rounded text-xs font-bold hover:bg-slate-200"
+                >
                   BUSCAR
                 </button>
               </div>
@@ -386,13 +389,14 @@ export default function AdminPedidosClient() {
           </div>
         ) : (
           pedidos.map((p) => {
-            // ✅ PRIORIDAD REAL: delivery_nombre (orders) -> repartidor_nombre (enrich) -> fallback
             const motoNombre = p.delivery_nombre || p.repartidor_nombre || null;
 
             return (
               <div
                 key={p.id}
-                className={`bg-white border rounded-xl p-4 md:p-5 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden ${estadoLeftBorder(p.estado)}`}
+                className={`bg-white border rounded-xl p-4 md:p-5 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden ${estadoLeftBorder(
+                  p.estado
+                )}`}
               >
                 <div className="flex flex-wrap justify-between items-start gap-3 mb-3">
                   <div className="flex items-center gap-2">
@@ -432,7 +436,10 @@ export default function AdminPedidosClient() {
 
                     {p.cliente_phone_normalized && (
                       <div className="flex gap-2 mt-2">
-                        <a href={`tel:${p.cliente_phone_normalized}`} className="text-xs bg-slate-100 px-2 py-1 rounded hover:bg-slate-200 font-bold text-slate-700">
+                        <a
+                          href={`tel:${p.cliente_phone_normalized}`}
+                          className="text-xs bg-slate-100 px-2 py-1 rounded hover:bg-slate-200 font-bold text-slate-700"
+                        >
                           📞 Llamar
                         </a>
                         <a
