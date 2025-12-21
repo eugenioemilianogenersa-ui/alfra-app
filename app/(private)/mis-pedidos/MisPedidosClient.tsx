@@ -20,7 +20,12 @@ type Order = {
   monto: number | null;
   estado: string | null;
   creado_en: string;
-  repartidor_nombre?: string | null; // ✅ NUEVO
+
+  // ✅ denormalizado en orders (lo mejor para STAFF/CLIENTE)
+  delivery_nombre?: string | null;
+
+  // fallback legacy
+  repartidor_nombre?: string | null;
 };
 
 type DeliveryLocation = {
@@ -75,16 +80,17 @@ export default function MisPedidosClient() {
   const [loading, setLoading] = useState(true);
 
   const [userId, setUserId] = useState<string | null>(null);
+  const userIdRef = useRef<string | null>(null);
 
   const [activeDeliveryId, setActiveDeliveryId] = useState<number | null>(null);
   const [tracking, setTracking] = useState<DeliveryLocation | null>(null);
 
-  const userIdRef = useRef<string | null>(null);
-  const pollRef = useRef<number | null>(null);
-
-  // ✅ Enriquecer orders con nombre de repartidor (deliveries -> profiles)
-  const enrichWithDeliveryName = async (rows: any[]): Promise<Order[]> => {
+  // Fallback ONLY si faltara delivery_nombre (por compatibilidad)
+  const enrichWithDeliveryNameFallback = async (rows: any[]): Promise<Order[]> => {
     if (!rows?.length) return [];
+    const needFallback = rows.some((o) => !o.delivery_nombre);
+
+    if (!needFallback) return rows as Order[];
 
     const orderIds = rows.map((o) => o.id);
 
@@ -135,7 +141,7 @@ export default function MisPedidosClient() {
   const loadOrders = async (uid: string) => {
     const { data, error } = await supabase
       .from("orders")
-      .select("*")
+      .select("id, cliente_nombre, direccion_entrega, monto, estado, creado_en, delivery_nombre")
       .eq("user_id", uid)
       .in("estado", ACTIVE_STATES)
       .order("id", { ascending: false });
@@ -145,11 +151,12 @@ export default function MisPedidosClient() {
       return;
     }
 
-    const enriched = await enrichWithDeliveryName((data as any[]) ?? []);
+    const enriched = await enrichWithDeliveryNameFallback((data as any[]) ?? []);
     setOrders(enriched);
   };
 
-  const refreshActiveDelivery = async (uid: string) => {
+  // devuelve el delivery_id activo (si existe) así evitamos stale state
+  const refreshActiveDelivery = async (uid: string): Promise<number | null> => {
     const { data: currentOrder, error: oErr } = await supabase
       .from("orders")
       .select("id")
@@ -164,7 +171,7 @@ export default function MisPedidosClient() {
     if (!currentOrder?.id) {
       setActiveDeliveryId(null);
       setTracking(null);
-      return;
+      return null;
     }
 
     const { data: deliveryRow, error: dErr } = await supabase
@@ -175,13 +182,12 @@ export default function MisPedidosClient() {
 
     if (dErr) console.error("Error buscando delivery:", dErr.message);
 
-    if (!deliveryRow?.id) {
-      setActiveDeliveryId(null);
-      setTracking(null);
-      return;
-    }
+    const did = deliveryRow?.id ? Number(deliveryRow.id) : null;
 
-    setActiveDeliveryId(Number(deliveryRow.id));
+    setActiveDeliveryId(did);
+    if (!did) setTracking(null);
+
+    return did;
   };
 
   const fetchLastLocation = async (deliveryId: number) => {
@@ -207,13 +213,11 @@ export default function MisPedidosClient() {
     if (!uid) return;
 
     await loadOrders(uid);
-    await refreshActiveDelivery(uid);
-
-    if (activeDeliveryId) {
-      await fetchLastLocation(activeDeliveryId);
-    }
+    const did = await refreshActiveDelivery(uid);
+    if (did) await fetchLastLocation(did);
   };
 
+  // INIT
   useEffect(() => {
     const init = async () => {
       const { data } = await supabase.auth.getUser();
@@ -230,8 +234,7 @@ export default function MisPedidosClient() {
         return;
       }
 
-      await loadOrders(uid);
-      await refreshActiveDelivery(uid);
+      await refreshAll();
       setLoading(false);
     };
 
@@ -239,49 +242,53 @@ export default function MisPedidosClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // REALTIME: orders (filtrado por user_id) + deliveries (para cuando aparece el delivery_id)
   useEffect(() => {
     if (!userId) return;
 
-    const channel = supabase
+    const ch = supabase
       .channel(`client-live-${userId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, async () => {
-        await refreshAll();
-      })
-      .on("postgres_changes", { event: "*", schema: "public", table: "deliveries" }, async () => {
-        await refreshAll();
-      })
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "orders", filter: `user_id=eq.${userId}` },
+        async () => {
+          await refreshAll();
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "deliveries" },
+        async () => {
+          // deliveries no tiene user_id, pero refrescar es barato porque luego filtramos por user_id
+          await refreshAll();
+        }
+      )
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      supabase.removeChannel(ch);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, activeDeliveryId]);
+  }, [userId]);
 
+  // REALTIME: tracking GPS instantáneo (sin polling)
   useEffect(() => {
-    if (!userId) return;
+    if (!activeDeliveryId) return;
 
-    const tick = async () => {
-      if (document.visibilityState !== "visible") return;
-      await refreshAll();
-    };
-
-    const id = window.setInterval(tick, 3000);
-    pollRef.current = id;
+    const chLoc = supabase
+      .channel(`client-loc-${activeDeliveryId}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "delivery_locations", filter: `delivery_id=eq.${activeDeliveryId}` },
+        async () => {
+          await fetchLastLocation(activeDeliveryId);
+        }
+      )
+      .subscribe();
 
     return () => {
-      if (pollRef.current) window.clearInterval(pollRef.current);
-      pollRef.current = null;
+      supabase.removeChannel(chLoc);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, activeDeliveryId]);
-
-  useEffect(() => {
-    if (!activeDeliveryId) {
-      setTracking(null);
-      return;
-    }
-    fetchLastLocation(activeDeliveryId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeDeliveryId]);
 
@@ -297,47 +304,51 @@ export default function MisPedidosClient() {
         </div>
       )}
 
-      {orders.map((o) => (
-        <div
-          key={o.id}
-          className={`bg-white border rounded-xl shadow-sm overflow-hidden border-l-4 ${estadoLeftBorder(o.estado)}`}
-        >
-          <div className="p-4 border-b bg-slate-50 flex justify-between items-center">
-            <div>
-              <h2 className="font-bold text-lg text-slate-800">Pedido #{o.id}</h2>
-              <p className="text-xs text-slate-400">{new Date(o.creado_en).toLocaleDateString("es-AR")}</p>
+      {orders.map((o) => {
+        // ✅ prioridad: orders.delivery_nombre (denormalizado) -> fallback -> null
+        const deliveryName = o.delivery_nombre || o.repartidor_nombre || null;
+
+        return (
+          <div
+            key={o.id}
+            className={`bg-white border rounded-xl shadow-sm overflow-hidden border-l-4 ${estadoLeftBorder(o.estado)}`}
+          >
+            <div className="p-4 border-b bg-slate-50 flex justify-between items-center">
+              <div>
+                <h2 className="font-bold text-lg text-slate-800">Pedido #{o.id}</h2>
+                <p className="text-xs text-slate-400">{new Date(o.creado_en).toLocaleDateString("es-AR")}</p>
+              </div>
+
+              <span
+                className={`px-3 py-1 rounded-full text-xs font-extrabold border uppercase tracking-wide ${estadoBadgeClass(
+                  o.estado
+                )}`}
+              >
+                {o.estado}
+              </span>
             </div>
 
-            <span
-              className={`px-3 py-1 rounded-full text-xs font-extrabold border uppercase tracking-wide ${estadoBadgeClass(
-                o.estado
-              )}`}
-            >
-              {o.estado}
-            </span>
-          </div>
+            <div className="p-4 space-y-2 text-sm text-slate-600">
+              {o.cliente_nombre && <p className="font-semibold text-slate-700">👤 {o.cliente_nombre}</p>}
+              <p>📍 {o.direccion_entrega}</p>
+              <p className="font-bold text-emerald-600">💰 Total: ${o.monto}</p>
 
-          <div className="p-4 space-y-2 text-sm text-slate-600">
-            {o.cliente_nombre && <p className="font-semibold text-slate-700">👤 {o.cliente_nombre}</p>}
-            <p>📍 {o.direccion_entrega}</p>
-            <p className="font-bold text-emerald-600">💰 Total: ${o.monto}</p>
+              {deliveryName && (
+                <p className="font-semibold text-slate-700">🛵 Delivery: {deliveryName}</p>
+              )}
+            </div>
 
-            {/* ✅ MOSTRAR DELIVERY */}
-            {o.repartidor_nombre && (
-              <p className="font-semibold text-slate-700">🛵 Delivery: {o.repartidor_nombre}</p>
+            {o.estado === "enviado" && tracking && (
+              <div className="border-t">
+                <div className="bg-yellow-100 p-2 text-center text-xs font-extrabold text-yellow-900 flex items-center justify-center gap-2 border-b border-yellow-200">
+                  🛵 TU PEDIDO ESTÁ EN CAMINO
+                </div>
+                <DeliveryMap lat={tracking.lat} lng={tracking.lng} />
+              </div>
             )}
           </div>
-
-          {o.estado === "enviado" && tracking && (
-            <div className="border-t">
-              <div className="bg-yellow-100 p-2 text-center text-xs font-extrabold text-yellow-900 flex items-center justify-center gap-2 border-b border-yellow-200">
-                🛵 TU PEDIDO ESTÁ EN CAMINO
-              </div>
-              <DeliveryMap lat={tracking.lat} lng={tracking.lng} />
-            </div>
-          )}
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
