@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabaseClient";
 import { updateOrderStatus } from "@/lib/updateOrderStatus";
 
-// --- TIPOS ---
 type Order = {
   id: number;
   cliente_nombre: string | null;
@@ -12,8 +11,7 @@ type Order = {
   monto: number | null;
   estado: string | null;
   creado_en: string;
-  cliente_phone_normalized?: string | null; // Nuevo campo
-
+  cliente_phone_normalized?: string | null;
   delivery_nombre?: string | null;
   repartidor_nombre?: string | null;
   estado_source?: string | null;
@@ -38,7 +36,6 @@ const ESTADOS = [
   "cancelado",
 ];
 
-// --- HELPERS UI ---
 const estadoBadgeClass = (e?: string | null) =>
   ({
     pendiente: "bg-slate-100 text-slate-600 border-slate-200",
@@ -79,10 +76,8 @@ const getDayRange = (dateString: string) => {
   return { start: pgLocal(start), end: pgLocal(end) };
 };
 
-// Helper Corrección Zona Horaria
 const formatFechaArgentina = (fechaString: string) => {
     if (!fechaString) return "";
-    // Forzamos interpretación UTC agregando Z si falta
     const fecha = new Date(fechaString.endsWith("Z") ? fechaString : fechaString + "Z");
     return fecha.toLocaleString("es-AR", {
       timeZone: "America/Argentina/Cordoba",
@@ -91,6 +86,17 @@ const formatFechaArgentina = (fechaString: string) => {
       day: "2-digit",
       month: "2-digit",
     });
+};
+
+// --- HELPER WHATSAPP ---
+const crearLinkWhatsApp = (numeroRaw?: string | null) => {
+  if (!numeroRaw) return "#";
+  let limpio = numeroRaw.replace(/\D/g, "");
+  // Si no empieza con 54, agregamos 549 (Argentina)
+  if (!limpio.startsWith("54")) {
+    limpio = `549${limpio}`;
+  }
+  return `https://wa.me/${limpio}`;
 };
 
 export default function AdminPedidosClient() {
@@ -262,11 +268,10 @@ export default function AdminPedidosClient() {
                     <div className="flex flex-col gap-1">
                         <div className="flex items-center gap-2"><span className="text-slate-400">📍</span><span className="font-medium text-slate-800">{p.direccion_entrega || "Retiro en local"}</span></div>
                         <div className="flex items-center gap-2"><span className="text-slate-400">🕒</span><span>{formatFechaArgentina(p.creado_en)}</span></div>
-                        {/* Botones de contacto rápidos */}
                         {p.cliente_phone_normalized && (
                            <div className="flex gap-2 mt-2">
                               <a href={`tel:${p.cliente_phone_normalized}`} className="text-xs bg-slate-100 px-2 py-1 rounded hover:bg-slate-200 font-bold text-slate-700">📞 Llamar</a>
-                              <a href={`https://wa.me/${p.cliente_phone_normalized.replace(/\+/g, '').replace(/\s/g, '')}`} target="_blank" rel="noreferrer" className="text-xs bg-green-50 px-2 py-1 rounded hover:bg-green-100 font-bold text-green-700 border border-green-200">💬 WhatsApp</a>
+                              <a href={crearLinkWhatsApp(p.cliente_phone_normalized)} target="_blank" rel="noreferrer" className="text-xs bg-green-50 px-2 py-1 rounded hover:bg-green-100 font-bold text-green-700 border border-green-200">💬 WhatsApp</a>
                            </div>
                         )}
                     </div>

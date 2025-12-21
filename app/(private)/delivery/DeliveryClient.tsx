@@ -10,7 +10,6 @@ type Order = {
   direccion_entrega: string;
   monto: number;
   estado: string;
-  // Agregamos fecha y telefono
   creado_en: string;
   cliente_phone_normalized?: string | null;
 };
@@ -59,11 +58,8 @@ function estadoRingClass(estado?: string | null) {
   }
 }
 
-// Helper para fecha Argentina corregida
 const formatFechaArgentina = (fechaString: string) => {
   if (!fechaString) return "";
-  // Truco: Si viene sin 'Z' (timestamp without time zone), le agregamos 'Z'
-  // para que JS sepa que es UTC y lo convierta a local (Argentina)
   const fecha = new Date(fechaString.endsWith("Z") ? fechaString : fechaString + "Z");
   return fecha.toLocaleString("es-AR", {
     timeZone: "America/Argentina/Cordoba",
@@ -72,6 +68,24 @@ const formatFechaArgentina = (fechaString: string) => {
     day: "2-digit",
     month: "2-digit",
   });
+};
+
+// --- NUEVO HELPER DE WHATSAPP ---
+// Corrige el error de "Finlandia" (+358) forzando Argentina (+549)
+const crearLinkWhatsApp = (numeroRaw?: string | null) => {
+  if (!numeroRaw) return "#";
+  
+  // 1. Limpiamos todo lo que no sea número (sacamos +, espacios, guiones)
+  let limpio = numeroRaw.replace(/\D/g, "");
+
+  // 2. Si el número ya empieza con 54, asumimos que está bien.
+  // Si NO empieza con 54, le agregamos el 549 (Argentina Móvil) adelante.
+  // Ejemplo: "3582407438" -> se convierte en "5493582407438"
+  if (!limpio.startsWith("54")) {
+    limpio = `549${limpio}`;
+  }
+
+  return `https://wa.me/${limpio}`;
 };
 
 export default function DeliveryClient() {
@@ -248,7 +262,6 @@ export default function DeliveryClient() {
 
         return (
           <div key={item.id} className={`border rounded-xl shadow-sm overflow-hidden bg-white ${estadoRingClass(order.estado)}`}>
-            {/* Header Card */}
             <div className={`${estadoHeaderClass(order.estado)} text-white p-4 flex justify-between items-center`}>
               <span className="font-bold text-lg">#{order.id}</span>
               <span className={`text-[11px] px-2 py-1 rounded-full uppercase font-bold border ${estadoBadgeClass(order.estado)}`} style={{ backgroundColor: "rgba(255,255,255,0.9)" }}>
@@ -256,7 +269,6 @@ export default function DeliveryClient() {
               </span>
             </div>
 
-            {/* Info Body */}
             <div className="p-4 space-y-3">
               <div>
                 <p className="text-lg font-bold text-slate-800 leading-tight">{order.cliente_nombre}</p>
@@ -276,20 +288,19 @@ export default function DeliveryClient() {
                   </div>
               </div>
 
-              {/* Botones de Contacto (Solo si hay teléfono) */}
               {phone && (
                   <div className="grid grid-cols-2 gap-2">
                       <a href={`tel:${phone}`} className="flex items-center justify-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 py-2 rounded-lg text-sm font-bold transition-colors">
                           📞 Llamar
                       </a>
-                      <a href={`https://wa.me/${phone.replace(/\+/g, '').replace(/\s/g, '')}`} target="_blank" rel="noreferrer" className="flex items-center justify-center gap-2 bg-green-100 hover:bg-green-200 text-green-800 py-2 rounded-lg text-sm font-bold transition-colors">
+                      {/* Usamos el helper crearLinkWhatsApp aquí */}
+                      <a href={crearLinkWhatsApp(phone)} target="_blank" rel="noreferrer" className="flex items-center justify-center gap-2 bg-green-100 hover:bg-green-200 text-green-800 py-2 rounded-lg text-sm font-bold transition-colors">
                           💬 WhatsApp
                       </a>
                   </div>
               )}
             </div>
 
-            {/* Actions Footer */}
             <div className="p-3 bg-slate-50 border-t">
               {order.estado !== "enviado" && (
                 <button onClick={() => handleComenzarViaje(order.id)} className="w-full bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700 text-black font-extrabold py-3 rounded-lg shadow transition-transform active:scale-95">
