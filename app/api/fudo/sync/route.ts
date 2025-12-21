@@ -170,10 +170,10 @@ export async function GET() {
         const waiterRel = dData?.relationships?.waiter?.data;
         const waiterId: string | null = waiterRel?.id ? String(waiterRel.id) : null;
 
-        // Leer pedido existente para NO retroceder estado
+        // Leer pedido existente (IMPORTANTE: traer delivery_user_id/nombre para NO romper asignaciones)
         const { data: existingOrder } = await supabaseAdmin
           .from("orders")
-          .select("id, estado, user_id")
+          .select("id, estado, user_id, delivery_user_id, delivery_nombre")
           .eq("external_id", saleId)
           .maybeSingle();
 
@@ -217,7 +217,7 @@ export async function GET() {
         // Mantener user_id existente si esta corrida no lo encontró
         const finalUserId = userIdForOrder || existingOrder?.user_id || null;
 
-        // Payload de upsert
+        // Payload de upsert (NO incluir delivery_* acá para no pisar manuales)
         const payload: any = {
           cliente_nombre: clienteNombre,
           direccion_entrega: direccionEntrega,
@@ -302,6 +302,7 @@ export async function GET() {
         }
 
         // AUTO-ASIGNAR DELIVERY (waiter -> delivery_user_id)
+        // ✅ FIX: también actualizar orders.delivery_user_id + orders.delivery_nombre (para que STAFF lo vea)
         if (waiterId) {
           try {
             const { data: waiterMap } = await supabaseAdmin
@@ -311,37 +312,81 @@ export async function GET() {
               .maybeSingle();
 
             if (waiterMap?.delivery_user_id) {
-              const { data: existingDelivery } = await supabaseAdmin
+              const alreadyHasOrderDelivery = !!(existingOrder?.delivery_user_id);
+
+              // Regla anti-ruptura:
+              // - si ya hay delivery asignado en orders (manual o previo), NO lo pisamos.
+              // - si NO hay delivery en orders, asignamos desde waiter_map.
+              const targetDeliveryUserId = alreadyHasOrderDelivery
+                ? (existingOrder!.delivery_user_id as string)
+                : (waiterMap.delivery_user_id as string);
+
+              // 1) deliveries upsert (asegura que exista para tracking)
+              const { error: upsertDeliveryErr } = await supabaseAdmin
                 .from("deliveries")
-                .select("id")
-                .eq("order_id", upsertedOrder.id)
-                .maybeSingle();
-
-              if (!existingDelivery) {
-                const { error: insertDeliveryError } = await supabaseAdmin
-                  .from("deliveries")
-                  .insert({
+                .upsert(
+                  {
                     order_id: upsertedOrder.id,
-                    delivery_user_id: waiterMap.delivery_user_id,
+                    delivery_user_id: targetDeliveryUserId,
                     status: "asignado",
-                  });
+                  },
+                  { onConflict: "order_id" }
+                );
 
-                if (insertDeliveryError) {
+              if (upsertDeliveryErr) {
+                await logSync({
+                  sale_id: saleId,
+                  order_id: upsertedOrder.id,
+                  action: "ERROR_AUTO_ASSIGN",
+                  note: upsertDeliveryErr.message,
+                });
+              } else {
+                await logSync({
+                  sale_id: saleId,
+                  order_id: upsertedOrder.id,
+                  action: "AUTO_ASSIGN_UPSERT",
+                  note: `waiter=${waiterId} user=${targetDeliveryUserId} preserve=${alreadyHasOrderDelivery}`,
+                });
+              }
+
+              // 2) Si NO había delivery en orders, setear delivery_user_id + delivery_nombre
+              if (!alreadyHasOrderDelivery) {
+                const { data: prof } = await supabaseAdmin
+                  .from("profiles")
+                  .select("display_name, email")
+                  .eq("id", targetDeliveryUserId)
+                  .maybeSingle();
+
+                const deliveryNombre =
+                  prof?.display_name ||
+                  (prof?.email ? prof.email.split("@")[0] : null) ||
+                  "Repartidor";
+
+                const { error: updOrderDeliveryErr } = await supabaseAdmin
+                  .from("orders")
+                  .update({
+                    delivery_user_id: targetDeliveryUserId,
+                    delivery_nombre: deliveryNombre,
+                    updated_at: new Date().toISOString(),
+                  })
+                  .eq("id", upsertedOrder.id);
+
+                if (updOrderDeliveryErr) {
                   await logSync({
                     sale_id: saleId,
                     order_id: upsertedOrder.id,
-                    action: "ERROR_AUTO_ASSIGN",
-                    note: insertDeliveryError.message,
+                    action: "ERROR_SET_ORDER_DELIVERY",
+                    note: updOrderDeliveryErr.message,
                   });
                 } else {
                   await logSync({
                     sale_id: saleId,
                     order_id: upsertedOrder.id,
-                    action: "AUTO_ASSIGN",
-                    note: `waiter=${waiterId} user=${waiterMap.delivery_user_id}`,
+                    action: "SET_ORDER_DELIVERY",
+                    note: `order.delivery_user_id=${targetDeliveryUserId} name=${deliveryNombre}`,
                   });
 
-                  // PUSH al delivery
+                  // 3) PUSH al delivery SOLO si fue nueva asignación
                   try {
                     const base = process.env.NEXT_PUBLIC_SITE_URL || "https://alfra-app.vercel.app";
                     const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -357,7 +402,7 @@ export async function GET() {
                       sale_id: saleId,
                       order_id: upsertedOrder.id,
                       action: "PUSH_DELIVERY_ASSIGNED",
-                      note: `delivery_user_id=${waiterMap.delivery_user_id}`,
+                      note: `delivery_user_id=${targetDeliveryUserId}`,
                     });
                   } catch (e: any) {
                     await logSync({
