@@ -5,6 +5,70 @@ import { createClient } from "@/lib/supabaseClient";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
+function StampGrid({ current }: { current: number }) {
+  const total = 8;
+  const safe = Math.max(0, Math.min(total, Number(current || 0)));
+
+  return (
+    <div className="bg-white p-4 rounded-xl shadow-md border border-slate-100">
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div>
+          <p className="text-xs font-bold text-slate-400 uppercase tracking-wide">
+            Sellos AlFra
+          </p>
+          <p className="text-sm text-slate-700">
+            {safe >= total ? (
+              <span className="font-bold text-emerald-700">¡Premio desbloqueado!</span>
+            ) : (
+              <>
+                Llevás <span className="font-bold">{safe}</span>/<span className="font-bold">{total}</span>
+              </>
+            )}
+          </p>
+        </div>
+
+        {/* Placeholder para futuro canje */}
+        <div className="text-right">
+          <span
+            className={`inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold border ${
+              safe >= total
+                ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                : "bg-slate-50 text-slate-600 border-slate-200"
+            }`}
+          >
+            {safe >= total ? "CANJEAR" : `Faltan ${total - safe}`}
+          </span>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-4 gap-3">
+        {Array.from({ length: total }).map((_, i) => {
+          const filled = i < safe;
+          return (
+            <div
+              key={i}
+              className={`rounded-2xl border flex items-center justify-center aspect-square ${
+                filled ? "border-emerald-200 bg-emerald-50" : "border-slate-200 bg-slate-50"
+              }`}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={filled ? "/stamps/stamp-filled.png" : "/stamps/stamp-empty.png"}
+                alt={filled ? "Sello ganado" : "Sello pendiente"}
+                className="w-12 h-12 sm:w-14 sm:h-14 object-contain"
+              />
+            </div>
+          );
+        })}
+      </div>
+
+      <p className="mt-3 text-[11px] text-slate-500">
+        Máximo 1 sello por día • Se obtiene con compra mínima.
+      </p>
+    </div>
+  );
+}
+
 export default function DashboardClient() {
   const supabase = createClient();
   const router = useRouter();
@@ -13,6 +77,7 @@ export default function DashboardClient() {
   const [loading, setLoading] = useState(true);
   const [userName, setUserName] = useState("Hola");
   const [points, setPoints] = useState(0);
+  const [stamps, setStamps] = useState(0);
   const [news, setNews] = useState<any[]>([]);
 
   useEffect(() => {
@@ -28,8 +93,8 @@ export default function DashboardClient() {
 
       const isPreviewMode = searchParams.get("preview") === "true";
 
-      // ✅ Rol por RPC (no depende de RLS de profiles)
-      const { data: roleRpc, error: roleErr } = await supabase.rpc("get_my_role");
+      // ✅ Rol por RPC
+      const { data: roleRpc } = await supabase.rpc("get_my_role");
       const userRole = String(roleRpc || "cliente").toLowerCase();
 
       if (!isPreviewMode) {
@@ -42,12 +107,12 @@ export default function DashboardClient() {
           return;
         }
         if (userRole === "staff") {
-          router.replace("/admin"); // staff entra al panel (limitado por sidebar/guards)
+          router.replace("/admin");
           return;
         }
       }
 
-      // ✅ Nombre: intentamos display_name. Si no, fallback al email
+      // ✅ Nombre
       try {
         const { data: profile, error: profErr } = await supabase
           .from("profiles")
@@ -66,7 +131,7 @@ export default function DashboardClient() {
         setUserName((user.email || "Hola").split("@")[0] || "Hola");
       }
 
-      // ✅ Puntos (si RLS está bien, esto funciona)
+      // ✅ Puntos
       const { data: wallet } = await supabase
         .from("loyalty_wallets")
         .select("points")
@@ -74,6 +139,15 @@ export default function DashboardClient() {
         .maybeSingle();
 
       if (wallet?.points != null) setPoints(Number(wallet.points) || 0);
+
+      // ✅ Sellos
+      const { data: sw } = await supabase
+        .from("stamps_wallet")
+        .select("current_stamps")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (sw?.current_stamps != null) setStamps(Number(sw.current_stamps) || 0);
 
       // ✅ News
       const { data: newsData } = await supabase
@@ -86,14 +160,23 @@ export default function DashboardClient() {
 
       setLoading(false);
 
+      // ✅ Realtime: puntos + sellos
       channel = supabase
-        .channel("public:loyalty_wallets_global")
+        .channel("public:wallets_global")
         .on(
           "postgres_changes",
           { event: "UPDATE", schema: "public", table: "loyalty_wallets" },
           (payload) => {
             const n: any = payload.new;
             if (n?.user_id === user.id) setPoints(Number(n.points) || 0);
+          }
+        )
+        .on(
+          "postgres_changes",
+          { event: "UPDATE", schema: "public", table: "stamps_wallet" },
+          (payload) => {
+            const n: any = payload.new;
+            if (n?.user_id === user.id) setStamps(Number(n.current_stamps) || 0);
           }
         )
         .subscribe();
@@ -133,9 +216,7 @@ export default function DashboardClient() {
         <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 rounded-full blur-2xl -mr-10 -mt-10 pointer-events-none"></div>
         <div className="relative z-10">
           <p className="text-slate-400 text-sm mb-1">Bienvenido,</p>
-          <h1 className="text-2xl font-bold capitalize mb-6">
-            {userName} 👋
-          </h1>
+          <h1 className="text-2xl font-bold capitalize mb-6">{userName} 👋</h1>
 
           <div className="flex items-center justify-between bg-white/10 backdrop-blur-md p-4 rounded-xl border border-white/10 transition-all duration-300">
             <div>
@@ -157,7 +238,12 @@ export default function DashboardClient() {
         </div>
       </div>
 
+      {/* ✅ Sellos en primer plano */}
       <div className="px-6 -mt-4 relative z-20">
+        <StampGrid current={stamps} />
+      </div>
+
+      <div className="px-6 mt-6">
         <div className="bg-white p-4 rounded-xl shadow-md border border-slate-100">
           <h2 className="text-xs font-bold text-slate-400 uppercase mb-3 tracking-wide">
             Servicios

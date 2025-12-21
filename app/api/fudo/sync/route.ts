@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getFudoSales, getFudoSaleDetail } from "@/lib/fudoClient";
+import { applyStamp, revokeStampByRef, getStampConfig } from "@/lib/stampsEngine";
 
 // 🔢 Normalizar teléfono de Fudo a un formato común:
 function normalizePhone(raw?: string | null): string | null {
@@ -95,14 +96,23 @@ export async function GET() {
   console.log("🔄 Iniciando Sync Fudo -> Supabase...");
   const todayStartIso = getTodayStartIso();
 
+  // config sellos (auto-heal)
+  let stampCfg: any = null;
+  try {
+    stampCfg = await getStampConfig();
+  } catch (e) {
+    // si falla config, NO rompemos sync
+    stampCfg = null;
+  }
+
   try {
     const fudoResp: any = await getFudoSales();
 
     const salesArray: any[] = Array.isArray(fudoResp?.sales)
       ? fudoResp.sales
       : Array.isArray(fudoResp?.data)
-      ? fudoResp.data
-      : [];
+        ? fudoResp.data
+        : [];
 
     let procesadosOrders = 0;
     let ejemploOrder: any = null;
@@ -265,7 +275,86 @@ export async function GET() {
           note: `ok phone=${fudoPhoneNormalized ?? "null"} user_id=${finalUserId ?? "null"}`,
         });
 
-        // PUSH por cambio real
+        // ✅ SELLOS (AUTO) - otorgar/revocar por estado
+        // Regla: si cambia a cancelado => revocar (sin push)
+        // Regla: si cambia a grant_on_estado (default entregado) => aplicar 1 sello (max 1/día)
+        try {
+          const prevEstado = (existingOrder?.estado ?? null) as string | null;
+
+          if (finalUserId && prevEstado !== finalEstado && stampCfg?.enabled) {
+            // cancelado => revoke
+            if (finalEstado === "cancelado") {
+              const r = await revokeStampByRef({
+                source: "FUDO",
+                refType: "order_id",
+                refId: String(upsertedOrder.id), // usamos order.id como referencia estable
+                revokedBy: null,
+                revokedReason: "order_cancelled",
+              });
+
+              await logSync({
+                sale_id: saleId,
+                order_id: upsertedOrder.id,
+                action: "STAMPS_REVOKE_ON_CANCEL",
+                old_estado: prevEstado,
+                new_estado: estadoDesdeFudo,
+                final_estado: finalEstado,
+                note: JSON.stringify(r),
+              });
+            }
+
+            // grant_on_estado => apply (con monto mínimo editable)
+            const grantOn = String(stampCfg?.grant_on_estado || "entregado");
+            if (finalEstado === grantOn) {
+              const a = await applyStamp({
+                userId: finalUserId,
+                source: "FUDO",
+                refType: "order_id",
+                refId: String(upsertedOrder.id),
+                amount: Number(monto),
+              });
+
+              await logSync({
+                sale_id: saleId,
+                order_id: upsertedOrder.id,
+                action: "STAMPS_APPLY",
+                old_estado: prevEstado,
+                new_estado: estadoDesdeFudo,
+                final_estado: finalEstado,
+                note: JSON.stringify(a),
+              });
+
+              // Push SOLO si se aplicó realmente (no daily_limit, no dup)
+              if ((a as any)?.applied === true) {
+                try {
+                  const base = process.env.NEXT_PUBLIC_SITE_URL || "https://alfra-app.vercel.app";
+                  await fetch(`${base}/api/push/notify-stamps`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ userId: finalUserId }),
+                  });
+                  await logSync({
+                    sale_id: saleId,
+                    order_id: upsertedOrder.id,
+                    action: "PUSH_STAMPS",
+                    note: "push queued",
+                  });
+                } catch {
+                  // no rompe
+                }
+              }
+            }
+          }
+        } catch (e: any) {
+          await logSync({
+            sale_id: saleId,
+            order_id: upsertedOrder.id,
+            action: "ERROR_STAMPS",
+            note: e?.message || "unknown",
+          });
+        }
+
+        // PUSH por cambio real (estado de pedido)
         const prevEstado = (existingOrder?.estado ?? null) as string | null;
 
         if (
@@ -312,16 +401,13 @@ export async function GET() {
               .maybeSingle();
 
             if (waiterMap?.delivery_user_id) {
-              const alreadyHasOrderDelivery = !!(existingOrder?.delivery_user_id);
+              const alreadyHasOrderDelivery = !!existingOrder?.delivery_user_id;
 
-              // Regla anti-ruptura:
-              // - si ya hay delivery asignado en orders (manual o previo), NO lo pisamos.
-              // - si NO hay delivery en orders, asignamos desde waiter_map.
               const targetDeliveryUserId = alreadyHasOrderDelivery
                 ? (existingOrder!.delivery_user_id as string)
                 : (waiterMap.delivery_user_id as string);
 
-              // 1) deliveries upsert (asegura que exista para tracking)
+              // 1) deliveries upsert
               const { error: upsertDeliveryErr } = await supabaseAdmin
                 .from("deliveries")
                 .upsert(

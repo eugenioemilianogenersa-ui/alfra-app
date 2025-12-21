@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { applyStamp, revokeStampByRef, getStampConfig } from "@/lib/stampsEngine";
 
 type Estado =
   | "pendiente"
@@ -155,10 +156,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Forbidden (STAFF no cancela)" }, { status: 403 });
     }
 
-    // Estado actual (service role)
+    // Estado actual + data necesaria para sellos (service role)
     const { data: order, error: orderErr } = await supabaseAdmin
       .from("orders")
-      .select("id, estado")
+      .select("id, estado, user_id, monto, source")
       .eq("id", id)
       .single();
 
@@ -191,7 +192,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // ✅ Anti-rollback SOLO para NO-ADMIN (STAFF y DELIVERY siguen igual)
+    // ✅ Anti-rollback SOLO para NO-ADMIN
     if (!isAdmin) {
       const allowed = TRANSICIONES[currentEstado] ?? [];
       if (!allowed.includes(nextEstado)) {
@@ -231,8 +232,56 @@ export async function POST(req: NextRequest) {
         source,
         metadata: { actor_user_id: user.id, actor_role: role, source, admin_override: isAdmin },
       });
+    } catch {
+      // noop
+    }
+
+    // ✅ SELLOS (APP)
+    // - si cancela => revocar sello (SILENT, sin push)
+    // - si llega a grant_on_estado => aplicar sello (si user_id existe)
+    try {
+      const cfg = await getStampConfig().catch(() => null);
+
+      if (cfg?.enabled && order?.user_id) {
+        const orderIdRef = String(id); // usamos order.id como ref estable (igual que en fudo/sync)
+        const userIdForStamp = String(order.user_id);
+        const monto = Number(order.monto ?? 0);
+
+        if (nextEstado === "cancelado") {
+          await revokeStampByRef({
+            source: "APP",
+            refType: "order_id",
+            refId: orderIdRef,
+            revokedBy: user.id,
+            revokedReason: "order_cancelled",
+          });
+          // SIN push
+        } else {
+          const grantOn = String(cfg.grant_on_estado || "entregado");
+          if (nextEstado === grantOn) {
+            const a = await applyStamp({
+              userId: userIdForStamp,
+              source: "APP",
+              refType: "order_id",
+              refId: orderIdRef,
+              amount: monto,
+            });
+
+            // Push SOLO si aplicó realmente
+            if ((a as any)?.applied === true) {
+              const base = process.env.NEXT_PUBLIC_SITE_URL || "https://alfra-app.vercel.app";
+              await fetch(`${base}/api/push/notify-stamps`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ userId: userIdForStamp }),
+              }).catch(() => null);
+            }
+          }
+        }
+      }
     } catch (e) {
-      console.warn("order_status_log insert skipped:", e);
+      // no rompe update-status
+      console.warn("stamps hook skipped:", e);
     }
 
     return NextResponse.json({ ok: true, orderId: id, estado: nextEstado });

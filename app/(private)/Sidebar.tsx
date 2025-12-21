@@ -26,6 +26,7 @@ export default function Sidebar({
     { href: "/admin", label: "Métricas / Inicio", icon: "📊" },
     { href: "/admin/usuarios", label: "Gestión Usuarios", icon: "👥" },
     { href: "/admin/puntos", label: "Gestión Puntos", icon: "💎" },
+    { href: "/admin/sellos", label: "Gestión Sellos", icon: "🧷" },
     { href: "/admin/pedidos", label: "Gestión Pedidos", icon: "📦" },
     { href: "/admin/repartidores-fudo", label: "Mapeo Fudo Delivery", icon: "🛵" },
     { href: "/admin/delivery-tracking", label: "Tracking Delivery", icon: "📍" },
@@ -36,6 +37,7 @@ export default function Sidebar({
   const staffLinks = [
     { href: "/admin/usuarios", label: "Gestión Usuarios", icon: "👥" },
     { href: "/admin/puntos", label: "Gestión Puntos", icon: "💎" },
+    { href: "/admin/sellos", label: "Gestión Sellos", icon: "🧷" },
     { href: "/admin/pedidos", label: "Gestión Pedidos", icon: "📦" },
   ];
 
