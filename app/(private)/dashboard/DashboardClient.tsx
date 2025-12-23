@@ -268,9 +268,9 @@ export default function DashboardClient() {
               </div>
               <span className="text-[10px] font-medium text-slate-600">Choperas</span>
             </Link>
-            <Link href="/comercios" className="flex flex-col items-center gap-2 group">
+            <Link href="/beneficios" className="flex flex-col items-center gap-2 group">
               <div className="w-12 h-12 bg-purple-100 text-purple-600 rounded-2xl flex items-center justify-center text-xl">
-                🤝
+                💯​
               </div>
               <span className="text-[10px] font-medium text-slate-600">Comercios</span>
             </Link>
