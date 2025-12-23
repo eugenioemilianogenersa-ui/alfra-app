@@ -50,7 +50,7 @@ export default function PuntosClient() {
     <main className="flex flex-col gap-6">
       <header className="text-center mt-4">
         <h1 className="text-xl font-semibold text-emerald-700">Puntos AlFra 🎯</h1>
-        <p className="text-sm text-slate-500 mt-1">Consultá tus puntos acumulados y beneficios.</p>
+        <p className="text-sm text-slate-500 mt-1">Consultá tus puntos acumulados y Beneficios.</p>
       </header>
 
       <section className="mx-auto w-full max-w-xl bg-white border rounded-xl shadow-sm p-6 text-center">
