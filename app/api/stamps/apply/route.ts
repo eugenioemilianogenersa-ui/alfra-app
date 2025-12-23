@@ -72,7 +72,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Datos incompletos" }, { status: 400 });
     }
 
-    // Solo MANUAL desde cliente
+    // ✅ Este endpoint es SOLO para MANUAL (admin/staff)
     if (source !== "MANUAL") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -106,7 +106,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Monto menor al mínimo" }, { status: 400 });
     }
 
-    // ✅ Push SOLO si realmente aplicó (no daily_limit, no dup)
+    // ✅ PUSH solo si aplicó realmente (no daily_limit / no dup)
     if ((result as any)?.applied === true) {
       const base = process.env.NEXT_PUBLIC_SITE_URL || "https://alfra-app.vercel.app";
       await fetch(`${base}/api/push/notify-stamps`, {
