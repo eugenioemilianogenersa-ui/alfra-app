@@ -272,7 +272,7 @@ export default function DashboardClient() {
               <div className="w-12 h-12 bg-purple-100 text-purple-600 rounded-2xl flex items-center justify-center text-xl">
                 💯​
               </div>
-              <span className="text-[10px] font-medium text-slate-600">Comercios</span>
+              <span className="text-[10px] font-medium text-slate-600">Beneficios</span>
             </Link>
             <Link href="/mis-pedidos" className="flex flex-col items-center gap-2 group">
               <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center text-xl">

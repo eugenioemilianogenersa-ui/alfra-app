@@ -17,7 +17,7 @@ export default function Nav() {
           <Item href="/puntos">Puntos</Item>
           <Item href="/variedades">Variedades</Item>
           <Item href="/choperas">Choperas</Item>
-          <Item href="/comercios">Comercios</Item>
+          <Item href="/Beneficios">Beneficios</Item>
           <Item href="/perfil">Perfil</Item>
         </div>
       </nav>
