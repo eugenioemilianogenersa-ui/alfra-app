@@ -27,7 +27,6 @@ function StampGrid({ current }: { current: number }) {
           </p>
         </div>
 
-        {/* Placeholder para futuro canje */}
         <div className="text-right">
           <span
             className={`inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold border ${
@@ -93,7 +92,7 @@ export default function DashboardClient() {
 
       const isPreviewMode = searchParams.get("preview") === "true";
 
-      // ✅ Rol por RPC
+      // ✅ Rol por RPC (no depende de RLS de profiles)
       const { data: roleRpc } = await supabase.rpc("get_my_role");
       const userRole = String(roleRpc || "cliente").toLowerCase();
 
@@ -160,7 +159,7 @@ export default function DashboardClient() {
 
       setLoading(false);
 
-      // ✅ Realtime: puntos + sellos
+      // ✅ Realtime: puntos + sellos (INSERT + UPDATE)
       channel = supabase
         .channel("public:wallets_global")
         .on(
@@ -169,6 +168,14 @@ export default function DashboardClient() {
           (payload) => {
             const n: any = payload.new;
             if (n?.user_id === user.id) setPoints(Number(n.points) || 0);
+          }
+        )
+        .on(
+          "postgres_changes",
+          { event: "INSERT", schema: "public", table: "stamps_wallet" },
+          (payload) => {
+            const n: any = payload.new;
+            if (n?.user_id === user.id) setStamps(Number(n.current_stamps) || 0);
           }
         )
         .on(
