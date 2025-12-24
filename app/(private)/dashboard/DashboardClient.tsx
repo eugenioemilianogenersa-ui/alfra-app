@@ -5,9 +5,27 @@ import { createClient } from "@/lib/supabaseClient";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
-function StampGrid({ current }: { current: number }) {
+function formatDateTime(dt: string) {
+  try {
+    const d = new Date(dt);
+    return d.toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" });
+  } catch {
+    return dt;
+  }
+}
+
+function StampGrid({
+  current,
+  onRedeem,
+  redeeming,
+}: {
+  current: number;
+  onRedeem: () => void;
+  redeeming: boolean;
+}) {
   const total = 8;
   const safe = Math.max(0, Math.min(total, Number(current || 0)));
+  const canRedeem = safe >= total;
 
   return (
     <div className="bg-white p-4 rounded-xl shadow-md border border-slate-100">
@@ -18,10 +36,13 @@ function StampGrid({ current }: { current: number }) {
           </p>
           <p className="text-sm text-slate-700">
             {safe >= total ? (
-              <span className="font-bold text-emerald-700">¡Premio desbloqueado!</span>
+              <span className="font-bold text-emerald-700">
+                ¡Premio desbloqueado!
+              </span>
             ) : (
               <>
-                Llevás <span className="font-bold">{safe}</span>/<span className="font-bold">{total}</span>
+                Llevás <span className="font-bold">{safe}</span>/
+                <span className="font-bold">{total}</span>
               </>
             )}
           </p>
@@ -47,7 +68,9 @@ function StampGrid({ current }: { current: number }) {
             <div
               key={i}
               className={`rounded-2xl border flex items-center justify-center aspect-square ${
-                filled ? "border-emerald-200 bg-emerald-50" : "border-slate-200 bg-slate-50"
+                filled
+                  ? "border-emerald-200 bg-emerald-50"
+                  : "border-slate-200 bg-slate-50"
               }`}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -64,6 +87,16 @@ function StampGrid({ current }: { current: number }) {
       <p className="mt-3 text-[11px] text-slate-500">
         Máximo 1 sello por día • Se obtiene con compra mínima.
       </p>
+
+      {canRedeem && (
+        <button
+          onClick={onRedeem}
+          disabled={redeeming}
+          className="mt-4 w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold py-3 rounded-xl transition active:scale-[0.99]"
+        >
+          {redeeming ? "Canjeando..." : "CANJEAR PREMIO 🎁"}
+        </button>
+      )}
     </div>
   );
 }
@@ -78,6 +111,15 @@ export default function DashboardClient() {
   const [points, setPoints] = useState(0);
   const [stamps, setStamps] = useState(0);
   const [news, setNews] = useState<any[]>([]);
+
+  const [redeeming, setRedeeming] = useState(false);
+  const [redeemError, setRedeemError] = useState<string | null>(null);
+  const [voucher, setVoucher] = useState<null | {
+    code: string;
+    issued_at: string;
+    expires_at: string;
+    reward_name: string;
+  }>(null);
 
   useEffect(() => {
     let channel: any;
@@ -197,6 +239,43 @@ export default function DashboardClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router, searchParams]);
 
+  async function handleRedeem() {
+    setRedeemError(null);
+    setRedeeming(true);
+    try {
+      const r = await fetch("/api/stamps/redeem", { method: "POST" });
+      const j = await r.json().catch(() => null);
+
+      if (!r.ok) {
+        setRedeemError(j?.error || "No se pudo canjear");
+        return;
+      }
+
+      // Actualizamos sellos en UI
+      if (j?.current_stamps != null) setStamps(Number(j.current_stamps) || 0);
+
+      setVoucher({
+        code: String(j.code),
+        issued_at: String(j.issued_at),
+        expires_at: String(j.expires_at),
+        reward_name: String(j.reward_name || "Premio"),
+      });
+    } catch (e: any) {
+      setRedeemError(e?.message || "Error de red");
+    } finally {
+      setRedeeming(false);
+    }
+  }
+
+  async function copyCode() {
+    if (!voucher?.code) return;
+    try {
+      await navigator.clipboard.writeText(voucher.code);
+    } catch {
+      // nada
+    }
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -247,7 +326,12 @@ export default function DashboardClient() {
 
       {/* ✅ Sellos en primer plano */}
       <div className="px-6 -mt-4 relative z-20">
-        <StampGrid current={stamps} />
+        <StampGrid current={stamps} onRedeem={handleRedeem} redeeming={redeeming} />
+        {redeemError && (
+          <div className="mt-3 text-xs font-bold text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
+            {redeemError}
+          </div>
+        )}
       </div>
 
       <div className="px-6 mt-6">
@@ -310,13 +394,78 @@ export default function DashboardClient() {
                 )}
                 <div className="p-4">
                   <h3 className="font-bold text-slate-800 mb-1">{item.title}</h3>
-                  <p className="text-sm text-slate-600 line-clamp-2">{item.content}</p>
+                  <p className="text-sm text-slate-600 line-clamp-2">
+                    {item.content}
+                  </p>
                 </div>
               </div>
             ))
           )}
         </div>
       </div>
+
+      {/* ✅ MODAL VOUCHER */}
+      {voucher && (
+        <div className="fixed inset-0 z-999 bg-black/50 flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
+            <div className="p-4 bg-slate-900 text-white">
+              <p className="text-xs font-bold text-emerald-300 uppercase tracking-wider">
+                Voucher AlFra
+              </p>
+              <h3 className="text-lg font-black">{voucher.reward_name}</h3>
+            </div>
+
+            <div className="p-4 space-y-3">
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
+                <p className="text-[11px] text-slate-500 font-bold uppercase">
+                  Código
+                </p>
+                <p className="text-xl font-black text-slate-900 tracking-wider">
+                  {voucher.code}
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-white border border-slate-200 rounded-xl p-3">
+                  <p className="text-[11px] text-slate-500 font-bold uppercase">
+                    Emitido
+                  </p>
+                  <p className="text-sm font-bold text-slate-800">
+                    {formatDateTime(voucher.issued_at)}
+                  </p>
+                </div>
+                <div className="bg-white border border-slate-200 rounded-xl p-3">
+                  <p className="text-[11px] text-slate-500 font-bold uppercase">
+                    Vence
+                  </p>
+                  <p className="text-sm font-black text-red-700">
+                    {formatDateTime(voucher.expires_at)}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={copyCode}
+                  className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl"
+                >
+                  Copiar código
+                </button>
+                <button
+                  onClick={() => setVoucher(null)}
+                  className="px-4 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold py-3 rounded-xl"
+                >
+                  Cerrar
+                </button>
+              </div>
+
+              <p className="text-[11px] text-slate-500">
+                Mostralo en caja para canjear. Válido por 10 días desde la emisión.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

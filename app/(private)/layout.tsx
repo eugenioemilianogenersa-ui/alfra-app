@@ -50,11 +50,18 @@ export default function PrivateLayout({ children }: { children: React.ReactNode 
     return {
       delivery: ["/delivery", "/perfil"],
 
-      // ✅ CLIENTE: agregamos /puntos
+      // ✅ CLIENTE
       cliente: ["/dashboard", "/carta", "/mis-pedidos", "/puntos", "/perfil"],
 
-      // STAFF: solo panel limitado
-      staff: ["/admin", "/admin/usuarios", "/admin/puntos", "/admin/pedidos"],
+      // ✅ STAFF: agregamos vouchers
+      staff: [
+        "/admin",
+        "/admin/usuarios",
+        "/admin/puntos",
+        "/admin/pedidos",
+        "/admin/sellos",
+        "/admin/vouchers",
+      ],
 
       // Admin preview (modo cliente)
       adminPreview: ["/dashboard", "/carta", "/mis-pedidos", "/puntos", "/perfil", "/delivery"],

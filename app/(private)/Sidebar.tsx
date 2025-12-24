@@ -27,17 +27,19 @@ export default function Sidebar({
     { href: "/admin/usuarios", label: "Gestión Usuarios", icon: "👥" },
     { href: "/admin/puntos", label: "Gestión Puntos", icon: "💎" },
     { href: "/admin/sellos", label: "Gestión Sellos", icon: "🧷" },
+    { href: "/admin/vouchers", label: "Vouchers (Canjes)", icon: "🎟️" },
     { href: "/admin/pedidos", label: "Gestión Pedidos", icon: "📦" },
     { href: "/admin/repartidores-fudo", label: "Mapeo Fudo Delivery", icon: "🛵" },
     { href: "/admin/delivery-tracking", label: "Tracking Delivery", icon: "📍" },
     { href: "/admin/news", label: "Noticias", icon: "📰" },
   ];
 
-  // Links STAFF (solo lo que pediste)
+  // Links STAFF
   const staffLinks = [
     { href: "/admin/usuarios", label: "Gestión Usuarios", icon: "👥" },
     { href: "/admin/puntos", label: "Gestión Puntos", icon: "💎" },
     { href: "/admin/sellos", label: "Gestión Sellos", icon: "🧷" },
+    { href: "/admin/vouchers", label: "Vouchers (Canjes)", icon: "🎟️" },
     { href: "/admin/pedidos", label: "Gestión Pedidos", icon: "📦" },
   ];
 
