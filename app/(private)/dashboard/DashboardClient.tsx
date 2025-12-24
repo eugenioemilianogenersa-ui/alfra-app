@@ -134,7 +134,6 @@ export default function DashboardClient() {
 
       const isPreviewMode = searchParams.get("preview") === "true";
 
-      // ✅ Rol por RPC (no depende de RLS de profiles)
       const { data: roleRpc } = await supabase.rpc("get_my_role");
       const userRole = String(roleRpc || "cliente").toLowerCase();
 
@@ -153,7 +152,6 @@ export default function DashboardClient() {
         }
       }
 
-      // ✅ Nombre
       try {
         const { data: profile, error: profErr } = await supabase
           .from("profiles")
@@ -172,7 +170,6 @@ export default function DashboardClient() {
         setUserName((user.email || "Hola").split("@")[0] || "Hola");
       }
 
-      // ✅ Puntos
       const { data: wallet } = await supabase
         .from("loyalty_wallets")
         .select("points")
@@ -181,7 +178,6 @@ export default function DashboardClient() {
 
       if (wallet?.points != null) setPoints(Number(wallet.points) || 0);
 
-      // ✅ Sellos
       const { data: sw } = await supabase
         .from("stamps_wallet")
         .select("current_stamps")
@@ -190,7 +186,6 @@ export default function DashboardClient() {
 
       if (sw?.current_stamps != null) setStamps(Number(sw.current_stamps) || 0);
 
-      // ✅ News
       const { data: newsData } = await supabase
         .from("news")
         .select("*")
@@ -201,7 +196,6 @@ export default function DashboardClient() {
 
       setLoading(false);
 
-      // ✅ Realtime: puntos + sellos (INSERT + UPDATE)
       channel = supabase
         .channel("public:wallets_global")
         .on(
@@ -242,11 +236,20 @@ export default function DashboardClient() {
   async function handleRedeem() {
     setRedeemError(null);
     setRedeeming(true);
+
     try {
-      // ✅ IMPORTANTE: enviar cookies para que el route handler vea la sesión
+      const { data: sess } = await supabase.auth.getSession();
+      const token = sess?.session?.access_token;
+      if (!token) {
+        setRedeemError("Sesión inválida. Volvé a iniciar sesión.");
+        return;
+      }
+
       const r = await fetch("/api/stamps/redeem", {
         method: "POST",
-        credentials: "include",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
       });
 
       const j = await r.json().catch(() => null);
@@ -329,12 +332,7 @@ export default function DashboardClient() {
       </div>
 
       <div className="px-6 -mt-4 relative z-20">
-        <StampGrid
-          current={stamps}
-          onRedeem={handleRedeem}
-          redeeming={redeeming}
-        />
-
+        <StampGrid current={stamps} onRedeem={handleRedeem} redeeming={redeeming} />
         {redeemError && (
           <div className="mt-3 text-xs font-bold text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
             {redeemError}
@@ -453,7 +451,9 @@ export default function DashboardClient() {
 
               <div className="flex gap-2">
                 <button
-                  onClick={copyCode}
+                  onClick={() => {
+                    navigator.clipboard.writeText(voucher.code).catch(() => null);
+                  }}
                   className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl"
                 >
                   Copiar código

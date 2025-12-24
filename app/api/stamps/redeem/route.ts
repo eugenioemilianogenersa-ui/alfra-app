@@ -1,31 +1,36 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerClient, type CookieOptions } from "@supabase/ssr";
+import { createClient } from "@supabase/supabase-js";
 
-type CookiesToSetItem = { name: string; value: string; options: CookieOptions };
+function getTokenFromReq(req: NextRequest) {
+  const auth = req.headers.get("authorization") || "";
+  if (!auth.toLowerCase().startsWith("bearer ")) return null;
+  const token = auth.slice(7).trim();
+  return token || null;
+}
 
 export async function POST(req: NextRequest) {
   try {
-    const res = NextResponse.next();
+    const token = getTokenFromReq(req);
+    if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const supabase = createServerClient(
+    // Cliente Supabase “user-context” con JWT del usuario
+    const supabaseUser = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
-        cookies: {
-          getAll: () => req.cookies.getAll(),
-          setAll: (cookiesToSet: CookiesToSetItem[]) =>
-            cookiesToSet.forEach((c) => res.cookies.set(c.name, c.value, c.options)),
-        },
+        global: { headers: { Authorization: `Bearer ${token}` } },
+        auth: { persistSession: false, autoRefreshToken: false },
       }
     );
 
-    const { data } = await supabase.auth.getUser();
-    const user = data?.user;
-    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const { data: u, error: uErr } = await supabaseUser.auth.getUser();
+    if (uErr || !u?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+    // reward fijo por ahora
     const rewardName = "1 Pinta Simple + Burguer Simple GRATIS";
 
-    const { data: out, error } = await supabase.rpc("redeem_stamps_create_voucher", {
+    // RPC corre con auth.uid() del JWT → perfecto
+    const { data: out, error } = await supabaseUser.rpc("redeem_stamps_create_voucher", {
       p_reward_name: rewardName,
     });
 
