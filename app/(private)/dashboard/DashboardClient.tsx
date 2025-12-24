@@ -243,7 +243,12 @@ export default function DashboardClient() {
     setRedeemError(null);
     setRedeeming(true);
     try {
-      const r = await fetch("/api/stamps/redeem", { method: "POST" });
+      // ✅ IMPORTANTE: enviar cookies para que el route handler vea la sesión
+      const r = await fetch("/api/stamps/redeem", {
+        method: "POST",
+        credentials: "include",
+      });
+
       const j = await r.json().catch(() => null);
 
       if (!r.ok) {
@@ -251,7 +256,6 @@ export default function DashboardClient() {
         return;
       }
 
-      // Actualizamos sellos en UI
       if (j?.current_stamps != null) setStamps(Number(j.current_stamps) || 0);
 
       setVoucher({
@@ -324,9 +328,13 @@ export default function DashboardClient() {
         </div>
       </div>
 
-      {/* ✅ Sellos en primer plano */}
       <div className="px-6 -mt-4 relative z-20">
-        <StampGrid current={stamps} onRedeem={handleRedeem} redeeming={redeeming} />
+        <StampGrid
+          current={stamps}
+          onRedeem={handleRedeem}
+          redeeming={redeeming}
+        />
+
         {redeemError && (
           <div className="mt-3 text-xs font-bold text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
             {redeemError}
@@ -404,7 +412,6 @@ export default function DashboardClient() {
         </div>
       </div>
 
-      {/* ✅ MODAL VOUCHER */}
       {voucher && (
         <div className="fixed inset-0 z-999 bg-black/50 flex items-center justify-center p-4">
           <div className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
