@@ -22,6 +22,18 @@ type LedgerRow = {
   revoked_reason: string | null;
 };
 
+type SyncResult = {
+  ok: boolean;
+  inspected?: number;
+  applied?: number;
+  revoked?: number;
+  skippedNoPhone?: number;
+  skippedNoUser?: number;
+  grant_on_estado?: string;
+  note?: string;
+  error?: string;
+};
+
 function onlyDigits(s: string) {
   return (s || "").replace(/\D/g, "");
 }
@@ -52,6 +64,10 @@ export default function AdminSellosClient() {
   const [manualAmount, setManualAmount] = useState<string>("");
   const [manualReason, setManualReason] = useState<string>("");
 
+  // ✅ sync fudo UI
+  const [syncing, setSyncing] = useState(false);
+  const [syncOut, setSyncOut] = useState<SyncResult | null>(null);
+
   useEffect(() => {
     (async () => {
       const { data } = await supabase.rpc("get_my_role");
@@ -68,7 +84,9 @@ export default function AdminSellosClient() {
       try {
         const r = await fetch("/api/stamps/config", { method: "GET" });
         const j = await r.json().catch(() => ({}));
-        if (r.ok && j?.config?.min_amount != null) setMinAmount(Number(j.config.min_amount) || 5000);
+        if (r.ok && j?.config?.min_amount != null) {
+          setMinAmount(Number(j.config.min_amount) || 5000);
+        }
       } catch {
         // noop
       }
@@ -80,8 +98,46 @@ export default function AdminSellosClient() {
     return data.session?.access_token || null;
   }
 
+  async function runFudoSyncStamps() {
+    setErr(null);
+    setSyncOut(null);
+
+    setSyncing(true);
+    try {
+      const token = await getBearer();
+      if (!token) {
+        setErr("Sesión inválida. Volvé a iniciar sesión.");
+        return;
+      }
+
+      const r = await fetch("/api/stamps/admin/run-fudo-sync", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j?.error || `HTTP ${r.status}`);
+
+      // viene: { ok:true, result:{...} }
+      const result = (j?.result || null) as SyncResult | null;
+      setSyncOut(result);
+
+      // si tenés un cliente cargado en pantalla, refrescamos por si cambió
+      if (user?.id) {
+        await lookup();
+      }
+    } catch (e: any) {
+      setErr(e?.message || "Error");
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   async function lookup() {
     setErr(null);
+    setSyncOut(null);
     setUser(null);
     setLedger([]);
     setCurrentStamps(0);
@@ -177,7 +233,6 @@ export default function AdminSellosClient() {
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j?.error || `HTTP ${r.status}`);
 
-      // refresh summary
       await lookup();
       setManualAmount("");
       setManualReason("");
@@ -240,10 +295,62 @@ export default function AdminSellosClient() {
             </p>
           </div>
 
-          <div className="text-[10px] font-bold uppercase tracking-wide px-3 py-1 rounded-full border bg-slate-50 text-slate-600">
-            {meRole === "admin" ? "ADMIN" : "STAFF"}
+          <div className="flex items-center gap-2">
+            <div className="text-[10px] font-bold uppercase tracking-wide px-3 py-1 rounded-full border bg-slate-50 text-slate-600">
+              {meRole === "admin" ? "ADMIN" : "STAFF"}
+            </div>
+
+            <button
+              onClick={runFudoSyncStamps}
+              disabled={syncing}
+              className="text-xs font-black px-3 py-2 rounded-lg border border-slate-200 bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-60"
+              title="Sincroniza sellos desde Fudo (mesa/mostrador/delivery) sin tocar pedidos"
+            >
+              {syncing ? "Sincronizando..." : "Sync Sellos (Fudo)"}
+            </button>
           </div>
         </div>
+
+        {syncOut && (
+          <div className="mt-4 bg-slate-50 border border-slate-200 rounded-xl p-4">
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">
+              Resultado Sync
+            </p>
+
+            {syncOut?.ok === false ? (
+              <p className="mt-2 text-sm font-bold text-red-700">
+                {syncOut.error || "Sync falló"}
+              </p>
+            ) : (
+              <div className="mt-2 grid grid-cols-2 md:grid-cols-5 gap-3">
+                <div className="bg-white border border-slate-200 rounded-lg p-3">
+                  <p className="text-[10px] font-bold text-slate-500 uppercase">Inspeccionadas</p>
+                  <p className="text-xl font-black text-slate-900">{syncOut.inspected ?? "-"}</p>
+                </div>
+                <div className="bg-white border border-emerald-200 rounded-lg p-3">
+                  <p className="text-[10px] font-bold text-emerald-700 uppercase">Aplicadas</p>
+                  <p className="text-xl font-black text-emerald-700">{syncOut.applied ?? "-"}</p>
+                </div>
+                <div className="bg-white border border-slate-200 rounded-lg p-3">
+                  <p className="text-[10px] font-bold text-slate-500 uppercase">Sin teléfono</p>
+                  <p className="text-xl font-black text-slate-900">{syncOut.skippedNoPhone ?? "-"}</p>
+                </div>
+                <div className="bg-white border border-slate-200 rounded-lg p-3">
+                  <p className="text-[10px] font-bold text-slate-500 uppercase">Sin usuario</p>
+                  <p className="text-xl font-black text-slate-900">{syncOut.skippedNoUser ?? "-"}</p>
+                </div>
+                <div className="bg-white border border-slate-200 rounded-lg p-3">
+                  <p className="text-[10px] font-bold text-slate-500 uppercase">Grant en</p>
+                  <p className="text-sm font-black text-slate-900">{syncOut.grant_on_estado || "-"}</p>
+                </div>
+              </div>
+            )}
+
+            <p className="mt-3 text-[11px] text-slate-500">
+              Tip: “Sin teléfono” = en Fudo no cargaron el cliente con teléfono. “Sin usuario” = hay teléfono pero no existe profile en AlFra App.
+            </p>
+          </div>
+        )}
 
         <div className="mt-4 flex flex-col sm:flex-row gap-3">
           <input
