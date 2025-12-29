@@ -1,3 +1,4 @@
+// C:\Dev\alfra-app\app\(private)\dashboard\DashboardClient.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -36,13 +37,10 @@ function StampGrid({
           </p>
           <p className="text-sm text-slate-700">
             {safe >= total ? (
-              <span className="font-bold text-emerald-700">
-                ¡Premio desbloqueado!
-              </span>
+              <span className="font-bold text-emerald-700">¡Premio desbloqueado!</span>
             ) : (
               <>
-                Llevás <span className="font-bold">{safe}</span>/
-                <span className="font-bold">{total}</span>
+                Llevás <span className="font-bold">{safe}</span>/<span className="font-bold">{total}</span>
               </>
             )}
           </p>
@@ -68,9 +66,7 @@ function StampGrid({
             <div
               key={i}
               className={`rounded-2xl border flex items-center justify-center aspect-square ${
-                filled
-                  ? "border-emerald-200 bg-emerald-50"
-                  : "border-slate-200 bg-slate-50"
+                filled ? "border-emerald-200 bg-emerald-50" : "border-slate-200 bg-slate-50"
               }`}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -273,7 +269,6 @@ export default function DashboardClient() {
   }
 
   async function safeCopy(text: string) {
-    // 1) Clipboard API
     try {
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(text);
@@ -283,7 +278,6 @@ export default function DashboardClient() {
       // fallback
     }
 
-    // 2) Fallback iOS / PWA
     try {
       const ta = document.createElement("textarea");
       ta.value = text;
@@ -317,7 +311,6 @@ export default function DashboardClient() {
       `Vence: ${formatDateTime(voucher.expires_at)}\n` +
       `Mostralo en caja para canjear.`;
 
-    // Web Share API (iOS/Android)
     try {
       const navAny = navigator as any;
       if (navAny?.share) {
@@ -325,11 +318,9 @@ export default function DashboardClient() {
         return;
       }
     } catch {
-      // si cancela, no pasa nada
       return;
     }
 
-    // fallback: copiar texto completo
     await safeCopy(text);
   }
 
@@ -407,15 +398,20 @@ export default function DashboardClient() {
 
   function whatsappLink() {
     if (!voucher?.code) return "#";
-    const text =
-      `Hola! Canjeé mi voucher AlFra.\n` +
-      `${voucher.reward_name}\n` +
-      `Código: ${voucher.code}\n` +
-      `Vence: ${formatDateTime(voucher.expires_at)}\n` +
-      `Lo presento en caja para canjear.`;
 
-    // Este link lo manda el cliente desde su WhatsApp (NO desde el número de AlFra)
-    return `https://wa.me/?text=${encodeURIComponent(text)}`;
+    const premioFijo = "Una Pinta Clásica + 1 Burguer Simple";
+
+    const text =
+      `Hola AlFra 👋\n` +
+      `Quiero canjear mi voucher.\n\n` +
+      `Nombre: ${userName}\n` +
+      `Premio: ${premioFijo}\n` +
+      `Código: ${voucher.code}\n` +
+      `Vence: ${formatDateTime(voucher.expires_at)}\n\n` +
+      `Gracias!`;
+
+    // ✅ Enviar al WhatsApp del comercio (cliente manda desde su WhatsApp)
+    return `https://wa.me/5493582405177?text=${encodeURIComponent(text)}`;
   }
 
   if (loading) {
@@ -451,9 +447,7 @@ export default function DashboardClient() {
               <p className="text-xs text-emerald-300 font-bold tracking-wider uppercase mb-1">
                 Tus Puntos AlFra
               </p>
-              <p className="text-3xl font-black text-amber-400 transition-all">
-                {points}
-              </p>
+              <p className="text-3xl font-black text-amber-400 transition-all">{points}</p>
             </div>
 
             <Link
@@ -477,9 +471,7 @@ export default function DashboardClient() {
 
       <div className="px-6 mt-6">
         <div className="bg-white p-4 rounded-xl shadow-md border border-slate-100">
-          <h2 className="text-xs font-bold text-slate-400 uppercase mb-3 tracking-wide">
-            Servicios
-          </h2>
+          <h2 className="text-xs font-bold text-slate-400 uppercase mb-3 tracking-wide">Servicios</h2>
           <div className="grid grid-cols-4 gap-2 text-center">
             <Link href="/carta" className="flex flex-col items-center gap-2 group">
               <div className="w-12 h-12 bg-amber-100 text-amber-600 rounded-2xl flex items-center justify-center text-xl">
@@ -527,17 +519,11 @@ export default function DashboardClient() {
               >
                 {item.image_url && (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={item.image_url}
-                    alt={item.title}
-                    className="h-32 w-full object-cover"
-                  />
+                  <img src={item.image_url} alt={item.title} className="h-32 w-full object-cover" />
                 )}
                 <div className="p-4">
                   <h3 className="font-bold text-slate-800 mb-1">{item.title}</h3>
-                  <p className="text-sm text-slate-600 line-clamp-2">
-                    {item.content}
-                  </p>
+                  <p className="text-sm text-slate-600 line-clamp-2">{item.content}</p>
                 </div>
               </div>
             ))
@@ -549,38 +535,24 @@ export default function DashboardClient() {
         <div className="fixed inset-0 z-999 bg-black/50 flex items-center justify-center p-4">
           <div className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
             <div className="p-4 bg-slate-900 text-white">
-              <p className="text-xs font-bold text-emerald-300 uppercase tracking-wider">
-                Voucher AlFra
-              </p>
+              <p className="text-xs font-bold text-emerald-300 uppercase tracking-wider">Voucher AlFra</p>
               <h3 className="text-lg font-black">{voucher.reward_name}</h3>
             </div>
 
             <div className="p-4 space-y-3">
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
-                <p className="text-[11px] text-slate-500 font-bold uppercase">
-                  Código
-                </p>
-                <p className="text-xl font-black text-slate-900 tracking-wider">
-                  {voucher.code}
-                </p>
+                <p className="text-[11px] text-slate-500 font-bold uppercase">Código</p>
+                <p className="text-xl font-black text-slate-900 tracking-wider">{voucher.code}</p>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="bg-white border border-slate-200 rounded-xl p-3">
-                  <p className="text-[11px] text-slate-500 font-bold uppercase">
-                    Emitido
-                  </p>
-                  <p className="text-sm font-bold text-slate-800">
-                    {formatDateTime(voucher.issued_at)}
-                  </p>
+                  <p className="text-[11px] text-slate-500 font-bold uppercase">Emitido</p>
+                  <p className="text-sm font-bold text-slate-800">{formatDateTime(voucher.issued_at)}</p>
                 </div>
                 <div className="bg-white border border-slate-200 rounded-xl p-3">
-                  <p className="text-[11px] text-slate-500 font-bold uppercase">
-                    Vence
-                  </p>
-                  <p className="text-sm font-black text-red-700">
-                    {formatDateTime(voucher.expires_at)}
-                  </p>
+                  <p className="text-[11px] text-slate-500 font-bold uppercase">Vence</p>
+                  <p className="text-sm font-black text-red-700">{formatDateTime(voucher.expires_at)}</p>
                 </div>
               </div>
 
