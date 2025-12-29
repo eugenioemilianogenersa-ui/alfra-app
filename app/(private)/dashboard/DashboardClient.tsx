@@ -1,4 +1,3 @@
-// C:\Dev\alfra-app\app\(private)\dashboard\DashboardClient.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -243,7 +242,11 @@ export default function DashboardClient() {
 
       const r = await fetch("/api/stamps/redeem", {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ reward_name: "Premio AlFra" }),
       });
 
       const j = await r.json().catch(() => null);
@@ -253,13 +256,15 @@ export default function DashboardClient() {
         return;
       }
 
-      if (j?.current_stamps != null) setStamps(Number(j.current_stamps) || 0);
+      const res = j?.result || j;
+
+      if (res?.current_stamps != null) setStamps(Number(res.current_stamps) || 0);
 
       setVoucher({
-        code: String(j.code),
-        issued_at: String(j.issued_at),
-        expires_at: String(j.expires_at),
-        reward_name: String(j.reward_name || "Premio"),
+        code: String(res.code),
+        issued_at: String(res.issued_at),
+        expires_at: String(res.expires_at),
+        reward_name: String(res.reward_name || "Premio"),
       });
     } catch (e: any) {
       setRedeemError(e?.message || "Error de red");
@@ -410,7 +415,6 @@ export default function DashboardClient() {
       `Vence: ${formatDateTime(voucher.expires_at)}\n\n` +
       `Gracias!`;
 
-    // ✅ Enviar al WhatsApp del comercio (cliente manda desde su WhatsApp)
     return `https://wa.me/5493582405177?text=${encodeURIComponent(text)}`;
   }
 
@@ -535,7 +539,9 @@ export default function DashboardClient() {
         <div className="fixed inset-0 z-999 bg-black/50 flex items-center justify-center p-4">
           <div className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
             <div className="p-4 bg-slate-900 text-white">
-              <p className="text-xs font-bold text-emerald-300 uppercase tracking-wider">Voucher AlFra</p>
+              <p className="text-xs font-bold text-emerald-300 uppercase tracking-wider">
+                Voucher AlFra
+              </p>
               <h3 className="text-lg font-black">{voucher.reward_name}</h3>
             </div>
 

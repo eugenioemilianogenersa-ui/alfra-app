@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Supabase en contexto usuario
+    // Cliente Supabase en contexto del usuario (JWT)
     const supabaseUser = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -25,22 +25,22 @@ export async function POST(req: NextRequest) {
       }
     );
 
-    // Validar sesión
-    const { data: userRes, error: userErr } = await supabaseUser.auth.getUser();
-    if (userErr || !userRes?.user) {
+    // Validar usuario
+    const { data: u, error: uErr } = await supabaseUser.auth.getUser();
+    if (uErr || !u?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const body = (await req.json().catch(() => null)) as any;
     const rewardName = String(body?.reward_name || "Premio AlFra").trim();
 
-    // RPC: canjea 8 sellos y crea voucher (según tu implementación)
+    // RPC: canjea 8 sellos y crea voucher (auth.uid() adentro)
     const { data, error } = await supabaseUser.rpc("redeem_stamps_create_voucher", {
       p_reward_name: rewardName,
     });
 
     if (error) {
-      // NO devolver 403: acá son errores de negocio (no stamps, etc.)
+      // Errores de negocio (no es forbidden)
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
