@@ -27,7 +27,6 @@ async function getUserFromBearer(req: NextRequest) {
 
   const { data, error } = await supabaseUser.auth.getUser();
   if (error || !data?.user) return null;
-
   return data.user;
 }
 
@@ -36,7 +35,7 @@ export async function POST(req: NextRequest) {
     const user = await getUserFromBearer(req);
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    // Solo ADMIN/STAFF
+    // ADMIN/STAFF
     const { data: me, error: meErr } = await supabaseAdmin
       .from("profiles")
       .select("role")
@@ -54,7 +53,6 @@ export async function POST(req: NextRequest) {
     const code = normCode(body?.code);
     if (!code) return NextResponse.json({ error: "code requerido" }, { status: 400 });
 
-    // Buscar voucher
     const { data: v, error: vErr } = await supabaseAdmin
       .from("stamps_vouchers")
       .select(
@@ -66,39 +64,47 @@ export async function POST(req: NextRequest) {
     if (vErr) return NextResponse.json({ error: vErr.message }, { status: 500 });
 
     if (!v?.id) {
-      return NextResponse.json({
-        ok: true,
-        result: { ok: false, code, status: "NOT_FOUND" },
-      });
+      return NextResponse.json({ ok: true, result: { ok: false, code, status: "NOT_FOUND" } });
     }
 
-    // Traer titular (para trazabilidad)
-    let owner: { id: string; display_name: string | null; phone_normalized: string | null } | null =
-      null;
-
-    if (v.user_id) {
-      const { data: p } = await supabaseAdmin
-        .from("profiles")
-        .select("id, display_name, phone_normalized")
-        .eq("id", v.user_id)
-        .maybeSingle();
-
-      if (p?.id) owner = p as any;
-    }
-
-    // Estado EXPIRED (solo informativo, NO canjea)
     const now = new Date();
     const exp = v.expires_at ? new Date(v.expires_at) : null;
-    const isExpired = !!(exp && exp.getTime() < now.getTime());
 
-    const status = isExpired ? "EXPIRED" : String(v.status || "").toUpperCase();
+    // titular
+    const { data: owner } = await supabaseAdmin
+      .from("profiles")
+      .select("display_name, phone_normalized")
+      .eq("id", v.user_id)
+      .maybeSingle();
+
+    if (exp && exp.getTime() < now.getTime()) {
+      return NextResponse.json({
+        ok: true,
+        result: {
+          ok: false,
+          code: v.code,
+          status: "EXPIRED",
+          reward_name: v.reward_name,
+          issued_at: v.issued_at,
+          expires_at: v.expires_at,
+          redeemed_at: v.redeemed_at,
+          redeemed_by: v.redeemed_by,
+          redeemed_channel: v.redeemed_channel,
+          redeemed_presenter: v.redeemed_presenter,
+          redeemed_note: v.redeemed_note,
+          owner: owner
+            ? { display_name: owner.display_name ?? null, phone_normalized: owner.phone_normalized ?? null }
+            : null,
+        },
+      });
+    }
 
     return NextResponse.json({
       ok: true,
       result: {
-        ok: status === "ISSUED",
+        ok: String(v.status).toUpperCase() === "ISSUED",
         code: v.code,
-        status,
+        status: v.status,
         reward_name: v.reward_name,
         issued_at: v.issued_at,
         expires_at: v.expires_at,
@@ -107,7 +113,9 @@ export async function POST(req: NextRequest) {
         redeemed_channel: v.redeemed_channel,
         redeemed_presenter: v.redeemed_presenter,
         redeemed_note: v.redeemed_note,
-        owner,
+        owner: owner
+          ? { display_name: owner.display_name ?? null, phone_normalized: owner.phone_normalized ?? null }
+          : null,
       },
     });
   } catch (e: any) {
