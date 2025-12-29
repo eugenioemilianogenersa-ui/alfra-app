@@ -20,7 +20,6 @@ async function getUserFromBearer(req: NextRequest) {
 
   const { data, error } = await supabaseUser.auth.getUser();
   if (error || !data?.user) return null;
-
   return data.user;
 }
 
@@ -43,33 +42,50 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    // Últimos 100 canjes
-    const { data, error } = await supabaseAdmin
+    // 1) Traer vouchers canjeados
+    const { data: vouchers, error: vErr } = await supabaseAdmin
       .from("stamps_vouchers")
       .select(
-        `
-        id,
-        code,
-        status,
-        reward_name,
-        issued_at,
-        expires_at,
-        redeemed_at,
-        redeemed_by,
-        redeemed_channel,
-        redeemed_presenter,
-        redeemed_note,
-        user_id,
-        profiles(display_name, phone_normalized)
-      `
+        "id, code, status, reward_name, issued_at, expires_at, redeemed_at, redeemed_by, redeemed_channel, redeemed_presenter, redeemed_note, user_id"
       )
       .eq("status", "REDEEMED")
       .order("redeemed_at", { ascending: false })
       .limit(100);
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (vErr) return NextResponse.json({ error: vErr.message }, { status: 500 });
 
-    return NextResponse.json({ ok: true, rows: data || [] });
+    const rows = vouchers || [];
+
+    // 2) Traer perfiles por user_id (sin join)
+    const userIds = Array.from(
+      new Set(rows.map((r: any) => r.user_id).filter(Boolean))
+    ) as string[];
+
+    let profilesMap = new Map<string, { display_name: string | null; phone_normalized: string | null }>();
+
+    if (userIds.length > 0) {
+      const { data: profiles, error: pErr } = await supabaseAdmin
+        .from("profiles")
+        .select("id, display_name, phone_normalized")
+        .in("id", userIds);
+
+      if (pErr) return NextResponse.json({ error: pErr.message }, { status: 500 });
+
+      (profiles || []).forEach((p: any) => {
+        profilesMap.set(p.id, {
+          display_name: p.display_name ?? null,
+          phone_normalized: p.phone_normalized ?? null,
+        });
+      });
+    }
+
+    // 3) Merge
+    const merged = rows.map((r: any) => ({
+      ...r,
+      profiles: r.user_id ? profilesMap.get(r.user_id) || null : null,
+    }));
+
+    return NextResponse.json({ ok: true, rows: merged });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "Server error" }, { status: 500 });
   }
