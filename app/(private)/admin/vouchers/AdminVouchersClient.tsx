@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabaseClient";
 import { useRouter } from "next/navigation";
 
 type OwnerInfo = {
-  id: string;
+  id?: string;
   display_name: string | null;
   phone_normalized: string | null;
 };
@@ -27,6 +27,25 @@ type ValidateResult = {
   owner?: OwnerInfo | null;
 };
 
+type HistoryRow = {
+  id: string;
+  code: string;
+  status: string;
+  reward_name: string | null;
+  issued_at: string | null;
+  expires_at: string | null;
+  redeemed_at: string | null;
+  redeemed_by: string | null;
+  redeemed_channel: string | null;
+  redeemed_presenter: string | null;
+  redeemed_note: string | null;
+  user_id: string | null;
+  profiles?: {
+    display_name: string | null;
+    phone_normalized: string | null;
+  } | null;
+};
+
 function formatDateTime(dt: string | null) {
   if (!dt) return "-";
   try {
@@ -42,6 +61,10 @@ function normCode(raw: string) {
     .trim()
     .toUpperCase()
     .replace(/\s+/g, "");
+}
+
+function normSearch(raw: string) {
+  return String(raw || "").trim().toLowerCase();
 }
 
 export default function AdminVouchersClient() {
@@ -63,6 +86,12 @@ export default function AdminVouchersClient() {
   const [presenter, setPresenter] = useState<string>("");
   const [note, setNote] = useState<string>("");
 
+  // Historial
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyErr, setHistoryErr] = useState<string | null>(null);
+  const [history, setHistory] = useState<HistoryRow[]>([]);
+  const [q, setQ] = useState("");
+
   useEffect(() => {
     async function boot() {
       const { data: userRes } = await supabase.auth.getUser();
@@ -82,6 +111,9 @@ export default function AdminVouchersClient() {
 
       setMeRole(role);
       setLoading(false);
+
+      // cargar historial al iniciar
+      fetchHistory();
     }
 
     boot();
@@ -182,7 +214,6 @@ export default function AdminVouchersClient() {
 
       if (!r.ok) {
         setErr(j?.error || "No se pudo canjear.");
-        // si el backend devolvió result, lo mostramos
         if (j?.result) setResult(j.result as ValidateResult);
         return;
       }
@@ -194,10 +225,42 @@ export default function AdminVouchersClient() {
       }
 
       setResult(row);
+
+      // refrescar historial después de canje
+      fetchHistory();
     } catch (e: any) {
       setErr(e?.message || "Error de red.");
     } finally {
       setRedeeming(false);
+    }
+  }
+
+  async function fetchHistory() {
+    setHistoryErr(null);
+    setHistoryLoading(true);
+    try {
+      const token = await getToken();
+      if (!token) {
+        setHistoryErr("Sesión inválida.");
+        return;
+      }
+
+      const r = await fetch("/api/stamps/admin/vouchers-history", {
+        method: "GET",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      const j = await r.json().catch(() => null);
+      if (!r.ok) {
+        setHistoryErr(j?.error || "No se pudo cargar historial.");
+        return;
+      }
+
+      setHistory(Array.isArray(j?.rows) ? (j.rows as HistoryRow[]) : []);
+    } catch (e: any) {
+      setHistoryErr(e?.message || "Error de red.");
+    } finally {
+      setHistoryLoading(false);
     }
   }
 
@@ -218,6 +281,27 @@ export default function AdminVouchersClient() {
   const status = String(result?.status || "").toUpperCase();
   const canRedeem = !!result && status === "ISSUED";
 
+  const qq = normSearch(q);
+  const filteredHistory = !qq
+    ? history
+    : history.filter((row) => {
+        const ownerName = row.profiles?.display_name || "";
+        const ownerPhone = row.profiles?.phone_normalized || "";
+        const hay =
+          [
+            row.code,
+            row.reward_name || "",
+            row.redeemed_channel || "",
+            row.redeemed_presenter || "",
+            row.redeemed_note || "",
+            ownerName,
+            ownerPhone,
+          ]
+            .join(" ")
+            .toLowerCase() || "";
+        return hay.includes(qq);
+      });
+
   return (
     <div className="max-w-2xl mx-auto p-6">
       <div className="mb-6">
@@ -231,6 +315,7 @@ export default function AdminVouchersClient() {
         </p>
       </div>
 
+      {/* BUSCADOR + RESULTADO */}
       <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
         <label className="text-xs font-bold text-slate-500 uppercase">Código voucher</label>
 
@@ -308,13 +393,10 @@ export default function AdminVouchersClient() {
 
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
                 <p className="text-[11px] text-slate-500 font-bold uppercase">Observación</p>
-                <p className="text-sm font-bold text-slate-800">
-                  {result.redeemed_note || "-"}
-                </p>
+                <p className="text-sm font-bold text-slate-800">{result.redeemed_note || "-"}</p>
               </div>
             </div>
 
-            {/* FORM CANJE (solo ISSUED) */}
             {canRedeem && (
               <div className="px-4 pb-4">
                 <div className="border border-slate-200 rounded-2xl p-4 bg-white">
@@ -395,6 +477,106 @@ export default function AdminVouchersClient() {
             </div>
           </div>
         )}
+      </div>
+
+      {/* HISTORIAL */}
+      <div className="mt-6 bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-wide">Historial</p>
+            <h2 className="text-lg font-black text-slate-900">Últimos canjes</h2>
+            <p className="text-xs text-slate-600 mt-1">
+              Buscá por código, nombre, teléfono, canal u observación.
+            </p>
+          </div>
+          <button
+            onClick={fetchHistory}
+            disabled={historyLoading}
+            className="rounded-xl px-4 py-2 font-black bg-slate-900 hover:bg-slate-800 text-white disabled:opacity-60"
+          >
+            {historyLoading ? "..." : "REFRESCAR"}
+          </button>
+        </div>
+
+        <div className="mt-3 flex gap-2">
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Buscar..."
+            className="flex-1 rounded-xl border border-slate-300 px-3 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-400"
+          />
+          <button
+            onClick={() => setQ("")}
+            className="rounded-xl px-4 py-3 font-black bg-slate-100 hover:bg-slate-200 text-slate-900"
+          >
+            LIMPIAR
+          </button>
+        </div>
+
+        {historyErr && (
+          <div className="mt-3 text-sm font-bold text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
+            {historyErr}
+          </div>
+        )}
+
+        <div className="mt-4 border border-slate-200 rounded-2xl overflow-hidden">
+          <div className="grid grid-cols-12 bg-slate-50 text-slate-600 text-[11px] font-black uppercase px-3 py-2">
+            <div className="col-span-4">Código</div>
+            <div className="col-span-3">Titular</div>
+            <div className="col-span-2">Canje</div>
+            <div className="col-span-3">Obs</div>
+          </div>
+
+          {historyLoading ? (
+            <div className="p-4 text-sm font-bold text-slate-600">Cargando historial...</div>
+          ) : filteredHistory.length === 0 ? (
+            <div className="p-4 text-sm font-bold text-slate-600">Sin resultados.</div>
+          ) : (
+            <div className="divide-y divide-slate-200">
+              {filteredHistory.map((row) => (
+                <div key={row.id} className="grid grid-cols-12 px-3 py-3 text-sm">
+                  <div className="col-span-4">
+                    <div className="font-mono font-black text-slate-900">{row.code}</div>
+                    <div className="text-xs font-bold text-slate-600 mt-1">
+                      {row.reward_name || "-"}
+                    </div>
+                  </div>
+
+                  <div className="col-span-3">
+                    <div className="font-black text-slate-900">
+                      {row.profiles?.display_name || "-"}
+                    </div>
+                    <div className="text-xs font-bold text-slate-600 mt-1">
+                      {row.profiles?.phone_normalized || ""}
+                    </div>
+                  </div>
+
+                  <div className="col-span-2">
+                    <div className="font-black text-slate-900">
+                      {row.redeemed_channel || "-"}
+                    </div>
+                    <div className="text-xs font-bold text-slate-600 mt-1">
+                      {formatDateTime(row.redeemed_at)}
+                    </div>
+                  </div>
+
+                  <div className="col-span-3">
+                    <div className="text-xs font-bold text-slate-900">
+                      {row.redeemed_presenter || "-"}
+                    </div>
+                    <div className="text-xs text-slate-600 mt-1 line-clamp-2">
+                      {row.redeemed_note || "-"}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <p className="mt-3 text-[11px] text-slate-500">
+          Mostrando hasta 100 canjes. Si querés, después le agregamos paginado sin romper nada.
+        </p>
       </div>
     </div>
   );
