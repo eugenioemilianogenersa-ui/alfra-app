@@ -37,11 +37,13 @@ export async function POST(req: NextRequest) {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     // Solo ADMIN/STAFF
-    const { data: me } = await supabaseAdmin
+    const { data: me, error: meErr } = await supabaseAdmin
       .from("profiles")
       .select("role")
       .eq("id", user.id)
       .maybeSingle();
+
+    if (meErr) return NextResponse.json({ error: meErr.message }, { status: 500 });
 
     const role = String(me?.role || "").toUpperCase();
     if (!["ADMIN", "STAFF"].includes(role)) {
@@ -55,11 +57,14 @@ export async function POST(req: NextRequest) {
     // Buscar voucher
     const { data: v, error: vErr } = await supabaseAdmin
       .from("stamps_vouchers")
-      .select("id, code, status, reward_name, issued_at, expires_at, redeemed_at, redeemed_by")
+      .select(
+        "id, user_id, code, status, reward_name, issued_at, expires_at, redeemed_at, redeemed_by, redeemed_channel, redeemed_presenter, redeemed_note"
+      )
       .eq("code", code)
       .maybeSingle();
 
     if (vErr) return NextResponse.json({ error: vErr.message }, { status: 500 });
+
     if (!v?.id) {
       return NextResponse.json({
         ok: true,
@@ -67,63 +72,42 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // Traer titular (para trazabilidad)
+    let owner: { id: string; display_name: string | null; phone_normalized: string | null } | null =
+      null;
+
+    if (v.user_id) {
+      const { data: p } = await supabaseAdmin
+        .from("profiles")
+        .select("id, display_name, phone_normalized")
+        .eq("id", v.user_id)
+        .maybeSingle();
+
+      if (p?.id) owner = p as any;
+    }
+
+    // Estado EXPIRED (solo informativo, NO canjea)
     const now = new Date();
     const exp = v.expires_at ? new Date(v.expires_at) : null;
+    const isExpired = !!(exp && exp.getTime() < now.getTime());
 
-    if (exp && exp.getTime() < now.getTime()) {
-      return NextResponse.json({
-        ok: true,
-        result: {
-          ok: false,
-          code: v.code,
-          status: "EXPIRED",
-          reward_name: v.reward_name,
-          issued_at: v.issued_at,
-          expires_at: v.expires_at,
-          redeemed_at: v.redeemed_at,
-        },
-      });
-    }
-
-    if (String(v.status).toUpperCase() !== "ISSUED") {
-      return NextResponse.json({
-        ok: true,
-        result: {
-          ok: false,
-          code: v.code,
-          status: v.status,
-          reward_name: v.reward_name,
-          issued_at: v.issued_at,
-          expires_at: v.expires_at,
-          redeemed_at: v.redeemed_at,
-        },
-      });
-    }
-
-    // Canjear (service role, sin RLS)
-    const redeemedAt = new Date().toISOString();
-    const { error: updErr } = await supabaseAdmin
-      .from("stamps_vouchers")
-      .update({
-        status: "REDEEMED",
-        redeemed_at: redeemedAt,
-        redeemed_by: user.id,
-        updated_at: redeemedAt,
-      })
-      .eq("id", v.id);
-
-    if (updErr) return NextResponse.json({ error: updErr.message }, { status: 500 });
+    const status = isExpired ? "EXPIRED" : String(v.status || "").toUpperCase();
 
     return NextResponse.json({
       ok: true,
       result: {
-        ok: true,
+        ok: status === "ISSUED",
         code: v.code,
-        status: "REDEEMED",
+        status,
         reward_name: v.reward_name,
         issued_at: v.issued_at,
         expires_at: v.expires_at,
-        redeemed_at: redeemedAt,
+        redeemed_at: v.redeemed_at,
+        redeemed_by: v.redeemed_by,
+        redeemed_channel: v.redeemed_channel,
+        redeemed_presenter: v.redeemed_presenter,
+        redeemed_note: v.redeemed_note,
+        owner,
       },
     });
   } catch (e: any) {

@@ -4,6 +4,12 @@ import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabaseClient";
 import { useRouter } from "next/navigation";
 
+type OwnerInfo = {
+  id: string;
+  display_name: string | null;
+  phone_normalized: string | null;
+};
+
 type ValidateResult = {
   ok: boolean;
   code: string;
@@ -12,6 +18,13 @@ type ValidateResult = {
   issued_at: string | null;
   expires_at: string | null;
   redeemed_at: string | null;
+
+  redeemed_by?: string | null;
+  redeemed_channel?: string | null;
+  redeemed_presenter?: string | null;
+  redeemed_note?: string | null;
+
+  owner?: OwnerInfo | null;
 };
 
 function formatDateTime(dt: string | null) {
@@ -40,8 +53,15 @@ export default function AdminVouchersClient() {
 
   const [code, setCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [redeeming, setRedeeming] = useState(false);
+
   const [err, setErr] = useState<string | null>(null);
   const [result, setResult] = useState<ValidateResult | null>(null);
+
+  // Meta canje
+  const [channel, setChannel] = useState<string>("CAJA");
+  const [presenter, setPresenter] = useState<string>("");
+  const [note, setNote] = useState<string>("");
 
   useEffect(() => {
     async function boot() {
@@ -52,7 +72,6 @@ export default function AdminVouchersClient() {
         return;
       }
 
-      // Rol por RPC (como venís usando)
       const { data: roleRpc } = await supabase.rpc("get_my_role");
       const role = String(roleRpc || "").toLowerCase();
 
@@ -69,7 +88,12 @@ export default function AdminVouchersClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function validateVoucher() {
+  async function getToken() {
+    const { data: sess } = await supabase.auth.getSession();
+    return sess?.session?.access_token || null;
+  }
+
+  async function lookupVoucher() {
     setErr(null);
     setResult(null);
 
@@ -81,8 +105,7 @@ export default function AdminVouchersClient() {
 
     setSubmitting(true);
     try {
-      const { data: sess } = await supabase.auth.getSession();
-      const token = sess?.session?.access_token;
+      const token = await getToken();
       if (!token) {
         setErr("Sesión inválida. Relogueá.");
         return;
@@ -100,7 +123,67 @@ export default function AdminVouchersClient() {
       const j = await r.json().catch(() => null);
 
       if (!r.ok) {
-        setErr(j?.error || "No se pudo validar.");
+        setErr(j?.error || "No se pudo buscar.");
+        return;
+      }
+
+      const row = j?.result as ValidateResult | undefined;
+      if (!row) {
+        setErr("Respuesta inválida.");
+        return;
+      }
+
+      setResult(row);
+
+      // reset meta cuando buscás un nuevo código
+      setChannel("CAJA");
+      setPresenter("");
+      setNote("");
+    } catch (e: any) {
+      setErr(e?.message || "Error de red.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function redeemVoucher() {
+    setErr(null);
+    if (!result) return;
+
+    const s = String(result.status || "").toUpperCase();
+    if (s !== "ISSUED") {
+      setErr("Solo podés canjear si el estado es ISSUED.");
+      return;
+    }
+
+    setRedeeming(true);
+    try {
+      const token = await getToken();
+      if (!token) {
+        setErr("Sesión inválida. Relogueá.");
+        return;
+      }
+
+      const r = await fetch("/api/stamps/admin/redeem-voucher", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          code: result.code,
+          redeemed_channel: channel,
+          redeemed_presenter: presenter,
+          redeemed_note: note,
+        }),
+      });
+
+      const j = await r.json().catch(() => null);
+
+      if (!r.ok) {
+        setErr(j?.error || "No se pudo canjear.");
+        // si el backend devolvió result, lo mostramos
+        if (j?.result) setResult(j.result as ValidateResult);
         return;
       }
 
@@ -114,13 +197,14 @@ export default function AdminVouchersClient() {
     } catch (e: any) {
       setErr(e?.message || "Error de red.");
     } finally {
-      setSubmitting(false);
+      setRedeeming(false);
     }
   }
 
   function statusBadge(status: string) {
     const s = String(status || "").toUpperCase();
-    const base = "inline-flex items-center px-3 py-1 rounded-full text-[11px] font-black border";
+    const base =
+      "inline-flex items-center px-3 py-1 rounded-full text-[11px] font-black border";
     if (s === "REDEEMED") return `${base} bg-emerald-50 text-emerald-700 border-emerald-200`;
     if (s === "EXPIRED") return `${base} bg-red-50 text-red-700 border-red-200`;
     if (s === "NOT_FOUND") return `${base} bg-slate-50 text-slate-700 border-slate-200`;
@@ -129,9 +213,10 @@ export default function AdminVouchersClient() {
     return `${base} bg-slate-50 text-slate-700 border-slate-200`;
   }
 
-  if (loading) {
-    return <div className="p-10">Cargando...</div>;
-  }
+  if (loading) return <div className="p-10">Cargando...</div>;
+
+  const status = String(result?.status || "").toUpperCase();
+  const canRedeem = !!result && status === "ISSUED";
 
   return (
     <div className="max-w-2xl mx-auto p-6">
@@ -139,31 +224,32 @@ export default function AdminVouchersClient() {
         <p className="text-xs font-bold text-slate-400 uppercase tracking-wide">
           Admin / Staff
         </p>
-        <h1 className="text-2xl font-black text-slate-900">Validar Vouchers</h1>
+        <h1 className="text-2xl font-black text-slate-900">Vouchers (Canjes)</h1>
         <p className="text-sm text-slate-600 mt-1">
-          Pegá el código del cliente y canjealo en caja. (Rol:{" "}
-          <span className="font-bold">{meRole.toUpperCase()}</span>)
+          Pegá el código, <b>buscá</b> los datos y luego <b>confirmá</b> el canje con observación.
+          (Rol: <span className="font-bold">{meRole.toUpperCase()}</span>)
         </p>
       </div>
 
       <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
-        <label className="text-xs font-bold text-slate-500 uppercase">
-          Código voucher
-        </label>
+        <label className="text-xs font-bold text-slate-500 uppercase">Código voucher</label>
 
         <div className="mt-2 flex gap-2">
           <input
             value={code}
             onChange={(e) => setCode(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") lookupVoucher();
+            }}
             placeholder="ALFRA-XXXX-YYYY"
             className="flex-1 rounded-xl border border-slate-300 px-3 py-3 font-mono text-sm outline-none focus:ring-2 focus:ring-emerald-400"
           />
           <button
-            onClick={validateVoucher}
+            onClick={lookupVoucher}
             disabled={submitting}
-            className="rounded-xl px-4 py-3 font-black bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-60 disabled:cursor-not-allowed"
+            className="rounded-xl px-4 py-3 font-black bg-slate-900 hover:bg-slate-800 text-white disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            {submitting ? "..." : "CANJEAR"}
+            {submitting ? "..." : "BUSCAR"}
           </button>
         </div>
 
@@ -177,9 +263,7 @@ export default function AdminVouchersClient() {
           <div className="mt-4 border border-slate-200 rounded-2xl overflow-hidden">
             <div className="p-3 bg-slate-900 text-white flex items-center justify-between">
               <div>
-                <p className="text-[11px] text-slate-300 font-bold uppercase">
-                  Resultado
-                </p>
+                <p className="text-[11px] text-slate-300 font-bold uppercase">Resultado</p>
                 <p className="font-mono font-black">{result.code}</p>
               </div>
               <span className={statusBadge(result.status)}>{result.status}</span>
@@ -187,45 +271,126 @@ export default function AdminVouchersClient() {
 
             <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
-                <p className="text-[11px] text-slate-500 font-bold uppercase">
-                  Premio
-                </p>
+                <p className="text-[11px] text-slate-500 font-bold uppercase">Titular</p>
                 <p className="text-sm font-black text-slate-900">
-                  {result.reward_name || "-"}
+                  {result.owner?.display_name || "-"}
+                </p>
+                <p className="text-xs font-bold text-slate-600 mt-1">
+                  {result.owner?.phone_normalized ? `Tel: ${result.owner.phone_normalized}` : ""}
                 </p>
               </div>
 
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
-                <p className="text-[11px] text-slate-500 font-bold uppercase">
-                  Emitido
-                </p>
+                <p className="text-[11px] text-slate-500 font-bold uppercase">Premio</p>
+                <p className="text-sm font-black text-slate-900">{result.reward_name || "-"}</p>
+              </div>
+
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
+                <p className="text-[11px] text-slate-500 font-bold uppercase">Emitido</p>
                 <p className="text-sm font-bold text-slate-800">
                   {formatDateTime(result.issued_at)}
                 </p>
               </div>
 
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
-                <p className="text-[11px] text-slate-500 font-bold uppercase">
-                  Vence
-                </p>
+                <p className="text-[11px] text-slate-500 font-bold uppercase">Vence</p>
                 <p className="text-sm font-black text-red-700">
                   {formatDateTime(result.expires_at)}
                 </p>
               </div>
 
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
-                <p className="text-[11px] text-slate-500 font-bold uppercase">
-                  Canjeado
-                </p>
+                <p className="text-[11px] text-slate-500 font-bold uppercase">Canjeado</p>
                 <p className="text-sm font-bold text-slate-800">
                   {formatDateTime(result.redeemed_at)}
                 </p>
               </div>
+
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
+                <p className="text-[11px] text-slate-500 font-bold uppercase">Observación</p>
+                <p className="text-sm font-bold text-slate-800">
+                  {result.redeemed_note || "-"}
+                </p>
+              </div>
             </div>
+
+            {/* FORM CANJE (solo ISSUED) */}
+            {canRedeem && (
+              <div className="px-4 pb-4">
+                <div className="border border-slate-200 rounded-2xl p-4 bg-white">
+                  <p className="text-xs font-black text-slate-700 uppercase">
+                    Registrar canje (trazabilidad)
+                  </p>
+
+                  <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-500 uppercase">
+                        Medio
+                      </label>
+                      <select
+                        value={channel}
+                        onChange={(e) => setChannel(e.target.value)}
+                        className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-400"
+                      >
+                        <option value="CAJA">CAJA</option>
+                        <option value="WHATSAPP">WHATSAPP</option>
+                        <option value="DELIVERY">DELIVERY</option>
+                        <option value="OTRO">OTRO</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-500 uppercase">
+                        Quién lo presentó
+                      </label>
+                      <input
+                        value={presenter}
+                        onChange={(e) => setPresenter(e.target.value)}
+                        placeholder="Titular / Nombre de quien vino"
+                        className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-400"
+                      />
+                    </div>
+
+                    <div className="sm:col-span-2">
+                      <label className="text-[11px] font-bold text-slate-500 uppercase">
+                        Observación
+                      </label>
+                      <textarea
+                        value={note}
+                        onChange={(e) => setNote(e.target.value)}
+                        placeholder="Ej: Vino el hermano con captura, validamos DNI por WhatsApp..."
+                        rows={3}
+                        className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-400"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-3 flex gap-2">
+                    <button
+                      onClick={redeemVoucher}
+                      disabled={redeeming}
+                      className="rounded-xl px-4 py-3 font-black bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      {redeeming ? "..." : "CONFIRMAR CANJE"}
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setResult(null);
+                        setErr(null);
+                      }}
+                      className="rounded-xl px-4 py-3 font-black bg-slate-100 hover:bg-slate-200 text-slate-900"
+                    >
+                      LIMPIAR
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="px-4 pb-4">
               <p className="text-[11px] text-slate-500">
-                Si dice <b>REDEEMED</b>, ya fue usado. Si dice <b>EXPIRED</b>, está vencido.
+                <b>ISSUED</b>: listo para canjear. <b>REDEEMED</b>: ya fue usado. <b>EXPIRED</b>: vencido.
               </p>
             </div>
           </div>
