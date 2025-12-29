@@ -10,20 +10,6 @@ function normalizePhone(raw?: string | null): string | null {
   return digits.length >= 10 ? digits.slice(-10) : digits;
 }
 
-function parseFudoAddress(raw?: string | null): string | null {
-  if (!raw) return null;
-  if (typeof raw === "string" && raw.trim().startsWith("[")) {
-    try {
-      const arr = JSON.parse(raw);
-      if (Array.isArray(arr)) return arr.filter(Boolean).join(" ");
-    } catch {
-      return raw;
-    }
-  }
-  return raw;
-}
-
-// Inicio de día (UTC) para traer solo ventas de hoy
 function getTodayStartIso(): string {
   const now = new Date();
   const y = now.getUTCFullYear();
@@ -32,7 +18,6 @@ function getTodayStartIso(): string {
   return `${y}-${m}-${d}T00:00:00Z`;
 }
 
-// Mapeo estado Fudo -> estados “AlFra”
 function mapSaleStateToEstado(saleState?: string | null): string {
   if (!saleState) return "pendiente";
   switch (saleState) {
@@ -52,11 +37,7 @@ function mapSaleStateToEstado(saleState?: string | null): string {
   }
 }
 
-async function logSync(params: {
-  sale_id?: string | null;
-  action: string;
-  note?: string | null;
-}) {
+async function logSync(params: { sale_id?: string | null; action: string; note?: string | null }) {
   try {
     await supabaseAdmin.from("fudo_sync_logs").insert({
       sale_id: params.sale_id ?? null,
@@ -68,8 +49,18 @@ async function logSync(params: {
   }
 }
 
-export async function GET() {
-  console.log("🧷 [STAMPS] Iniciando Fudo Sync Sellos (mesa/mostrador/delivery)...");
+export async function GET(req: Request) {
+  // ✅ Si seteás INTERNAL_STAMPS_SYNC_KEY, exigimos key.
+  // Si NO está seteada, queda abierto (modo dev), pero te recomiendo setearla.
+  const requiredKey = process.env.INTERNAL_STAMPS_SYNC_KEY;
+  if (requiredKey) {
+    const key = new URL(req.url).searchParams.get("key") || "";
+    if (key !== requiredKey) {
+      return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+    }
+  }
+
+  console.log("🧷 [STAMPS] Fudo Sync Sellos (mesa/mostrador/delivery)...");
   const todayStartIso = getTodayStartIso();
 
   let stampCfg: any = null;
@@ -110,7 +101,6 @@ export async function GET() {
 
         inspected++;
 
-        // detalle venta (para phone + customer)
         let detail: any;
         try {
           detail = await getFudoSaleDetail(saleId);
@@ -131,7 +121,6 @@ export async function GET() {
         const monto = dAttrs.total ?? attrs.total ?? 0;
         const estado = mapSaleStateToEstado(dAttrs.saleState);
 
-        // phone
         const fudoPhoneRaw: string | null =
           anon?.phone || customerIncluded?.attributes?.phone || null;
 
@@ -142,7 +131,6 @@ export async function GET() {
           continue;
         }
 
-        // buscar user por phone_normalized
         const { data: prof, error: profErr } = await supabaseAdmin
           .from("profiles")
           .select("id")
@@ -160,10 +148,8 @@ export async function GET() {
           continue;
         }
 
-        // refId estable por venta (sirve mesa/mostrador/delivery)
         const refId = `sale:${saleId}`;
 
-        // cancelado => revocar si existía
         if (estado === "cancelado") {
           const r = await revokeStampByRef({
             source: "FUDO",
@@ -176,7 +162,6 @@ export async function GET() {
           continue;
         }
 
-        // grant_on_estado => aplicar (monto mínimo se valida en stampsEngine)
         if (estado === grantOn) {
           const a = await applyStamp({
             userId,
@@ -189,7 +174,6 @@ export async function GET() {
           if ((a as any)?.applied === true) {
             applied++;
 
-            // push sellos (ya te avisa si llegó a 8)
             const base = process.env.NEXT_PUBLIC_SITE_URL || "https://alfra-app.vercel.app";
             await fetch(`${base}/api/push/notify-stamps`, {
               method: "POST",
