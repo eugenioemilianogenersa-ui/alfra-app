@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabaseClient";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import JsBarcode from "jsbarcode";
 
 function formatDateTime(dt: string) {
   try {
@@ -96,6 +97,18 @@ function StampGrid({
   );
 }
 
+function makeBarcodeSvg(code: string) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  JsBarcode(svg, code, {
+    format: "CODE128",
+    displayValue: false,
+    margin: 0,
+    height: 64,
+    width: 2,
+  });
+  return svg.outerHTML;
+}
+
 export default function DashboardClient() {
   const supabase = createClient();
   const router = useRouter();
@@ -115,6 +128,25 @@ export default function DashboardClient() {
     expires_at: string;
     reward_name: string;
   }>(null);
+
+  const barcodeRef = useRef<SVGSVGElement | null>(null);
+
+  useEffect(() => {
+    if (!voucher?.code) return;
+    if (!barcodeRef.current) return;
+
+    try {
+      JsBarcode(barcodeRef.current, voucher.code, {
+        format: "CODE128",
+        displayValue: false,
+        margin: 0,
+        height: 64,
+        width: 2,
+      });
+    } catch (e: any) {
+      setRedeemError(e?.message || "No se pudo generar el código de barras.");
+    }
+  }, [voucher?.code]);
 
   useEffect(() => {
     let channel: any;
@@ -279,9 +311,7 @@ export default function DashboardClient() {
         await navigator.clipboard.writeText(text);
         return true;
       }
-    } catch {
-      // fallback
-    }
+    } catch {}
 
     try {
       const ta = document.createElement("textarea");
@@ -332,6 +362,11 @@ export default function DashboardClient() {
   function handleSavePdf() {
     if (!voucher?.code) return;
 
+    let barcodeSvg = "";
+    try {
+      barcodeSvg = makeBarcodeSvg(voucher.code);
+    } catch {}
+
     const html = `<!doctype html>
 <html>
 <head>
@@ -353,6 +388,8 @@ export default function DashboardClient() {
   .val{font-size:14px; font-weight:800; margin-top:6px}
   .exp{color:#b91c1c}
   .note{font-size:11px; color:#64748b; margin-top:10px}
+  .barcode{display:flex; justify-content:center; padding:10px 0 0 0;}
+  svg{max-width:100%; height:auto;}
   @media print { body{background:white} }
 </style>
 </head>
@@ -366,6 +403,7 @@ export default function DashboardClient() {
       <div class="box">
         <div class="lbl">Código</div>
         <div class="code">${voucher.code}</div>
+        <div class="barcode">${barcodeSvg || ""}</div>
       </div>
 
       <div class="row">
@@ -539,9 +577,7 @@ export default function DashboardClient() {
         <div className="fixed inset-0 z-999 bg-black/50 flex items-center justify-center p-4">
           <div className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
             <div className="p-4 bg-slate-900 text-white">
-              <p className="text-xs font-bold text-emerald-300 uppercase tracking-wider">
-                Voucher AlFra
-              </p>
+              <p className="text-xs font-bold text-emerald-300 uppercase tracking-wider">Voucher AlFra</p>
               <h3 className="text-lg font-black">{voucher.reward_name}</h3>
             </div>
 
@@ -549,6 +585,14 @@ export default function DashboardClient() {
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
                 <p className="text-[11px] text-slate-500 font-bold uppercase">Código</p>
                 <p className="text-xl font-black text-slate-900 tracking-wider">{voucher.code}</p>
+
+                <div className="mt-2 flex justify-center">
+                  <svg ref={barcodeRef} />
+                </div>
+
+                <p className="mt-2 text-[10px] text-slate-500 text-center">
+                  Escaneá este código en caja (CODE128).
+                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-3">

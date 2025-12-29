@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabaseClient";
 import { useRouter } from "next/navigation";
+import JsBarcode from "jsbarcode";
 
 type OwnerInfo = {
   id?: string;
@@ -13,7 +14,7 @@ type OwnerInfo = {
 type ValidateResult = {
   ok: boolean;
   code: string;
-  status: string; // REDEEMED | ISSUED | EXPIRED | NOT_FOUND | CANCELED
+  status: string;
   reward_name: string | null;
   issued_at: string | null;
   expires_at: string | null;
@@ -81,6 +82,8 @@ export default function AdminVouchersClient() {
   const [err, setErr] = useState<string | null>(null);
   const [result, setResult] = useState<ValidateResult | null>(null);
 
+  const barcodeRef = useRef<SVGSVGElement | null>(null);
+
   // Meta canje
   const [channel, setChannel] = useState<string>("CAJA");
   const [presenter, setPresenter] = useState<string>("");
@@ -111,14 +114,27 @@ export default function AdminVouchersClient() {
 
       setMeRole(role);
       setLoading(false);
-
-      // cargar historial al iniciar
       fetchHistory();
     }
 
     boot();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!result?.code) return;
+    if (!barcodeRef.current) return;
+
+    try {
+      JsBarcode(barcodeRef.current, result.code, {
+        format: "CODE128",
+        displayValue: false,
+        margin: 0,
+        height: 54,
+        width: 2,
+      });
+    } catch {}
+  }, [result?.code]);
 
   async function getToken() {
     const { data: sess } = await supabase.auth.getSession();
@@ -167,7 +183,6 @@ export default function AdminVouchersClient() {
 
       setResult(row);
 
-      // reset meta cuando buscás un nuevo código
       setChannel("CAJA");
       setPresenter("");
       setNote("");
@@ -225,8 +240,6 @@ export default function AdminVouchersClient() {
       }
 
       setResult(row);
-
-      // refrescar historial después de canje
       fetchHistory();
     } catch (e: any) {
       setErr(e?.message || "Error de red.");
@@ -315,7 +328,6 @@ export default function AdminVouchersClient() {
         </p>
       </div>
 
-      {/* BUSCADOR + RESULTADO */}
       <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
         <label className="text-xs font-bold text-slate-500 uppercase">Código voucher</label>
 
@@ -368,6 +380,16 @@ export default function AdminVouchersClient() {
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
                 <p className="text-[11px] text-slate-500 font-bold uppercase">Premio</p>
                 <p className="text-sm font-black text-slate-900">{result.reward_name || "-"}</p>
+              </div>
+
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 sm:col-span-2">
+                <p className="text-[11px] text-slate-500 font-bold uppercase">Código de barras</p>
+                <div className="mt-2 flex justify-center bg-white border border-slate-200 rounded-xl p-2">
+                  <svg ref={barcodeRef} />
+                </div>
+                <p className="mt-2 text-[10px] text-slate-500 text-center">
+                  (CODE128) Scanner lo lee como texto.
+                </p>
               </div>
 
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
