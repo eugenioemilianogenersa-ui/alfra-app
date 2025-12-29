@@ -15,7 +15,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Cliente Supabase en contexto del usuario (JWT)
     const supabaseUser = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -25,26 +24,42 @@ export async function POST(req: NextRequest) {
       }
     );
 
-    // Validar usuario
     const { data: u, error: uErr } = await supabaseUser.auth.getUser();
     if (uErr || !u?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const body = (await req.json().catch(() => null)) as any;
-    const rewardName = String(body?.reward_name || "Premio AlFra").trim();
+    const rewardName = String(body?.reward_name || "Premio").trim() || "Premio";
 
-    // RPC: canjea 8 sellos y crea voucher (auth.uid() adentro)
     const { data, error } = await supabaseUser.rpc("redeem_stamps_create_voucher", {
       p_reward_name: rewardName,
     });
 
     if (error) {
-      // Errores de negocio (no es forbidden)
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
-    return NextResponse.json({ ok: true, result: data });
+    // ✅ NORMALIZAR: RPC puede devolver array (set-returning function)
+    const row: any = Array.isArray(data) ? data[0] : data;
+
+    if (!row?.code) {
+      return NextResponse.json(
+        { error: "RPC devolvió respuesta inválida (sin code)." },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({
+      ok: true,
+      result: {
+        code: String(row.code),
+        issued_at: String(row.issued_at),
+        expires_at: String(row.expires_at),
+        current_stamps: Number(row.current_stamps ?? 0),
+        reward_name: rewardName, // tu RPC no lo devuelve, lo fijamos acá
+      },
+    });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "Server error" }, { status: 500 });
   }
