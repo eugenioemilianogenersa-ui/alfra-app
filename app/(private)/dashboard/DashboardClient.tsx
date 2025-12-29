@@ -247,9 +247,7 @@ export default function DashboardClient() {
 
       const r = await fetch("/api/stamps/redeem", {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { Authorization: `Bearer ${token}` },
       });
 
       const j = await r.json().catch(() => null);
@@ -274,13 +272,150 @@ export default function DashboardClient() {
     }
   }
 
-  async function copyCode() {
-    if (!voucher?.code) return;
+  async function safeCopy(text: string) {
+    // 1) Clipboard API
     try {
-      await navigator.clipboard.writeText(voucher.code);
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
     } catch {
-      // nada
+      // fallback
     }
+
+    // 2) Fallback iOS / PWA
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      ta.style.top = "0";
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      const ok = document.execCommand("copy");
+      document.body.removeChild(ta);
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+
+  async function handleCopyCode() {
+    if (!voucher?.code) return;
+    const ok = await safeCopy(voucher.code);
+    if (!ok) setRedeemError("No se pudo copiar en este dispositivo.");
+  }
+
+  async function handleShare() {
+    if (!voucher?.code) return;
+
+    const text =
+      `🎁 Voucher AlFra\n` +
+      `${voucher.reward_name}\n` +
+      `Código: ${voucher.code}\n` +
+      `Vence: ${formatDateTime(voucher.expires_at)}\n` +
+      `Mostralo en caja para canjear.`;
+
+    // Web Share API (iOS/Android)
+    try {
+      const navAny = navigator as any;
+      if (navAny?.share) {
+        await navAny.share({ title: "Voucher AlFra", text });
+        return;
+      }
+    } catch {
+      // si cancela, no pasa nada
+      return;
+    }
+
+    // fallback: copiar texto completo
+    await safeCopy(text);
+  }
+
+  function handleSavePdf() {
+    if (!voucher?.code) return;
+
+    const html = `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Voucher AlFra</title>
+<style>
+  body{font-family:Arial, sans-serif; padding:24px; background:#f8fafc;}
+  .card{max-width:520px; margin:0 auto; border:1px solid #e2e8f0; border-radius:16px; overflow:hidden; background:white;}
+  .head{background:#0f172a; color:white; padding:16px;}
+  .head .sub{font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:#6ee7b7; font-weight:700}
+  .head .title{font-size:18px; font-weight:900; margin-top:6px}
+  .content{padding:16px}
+  .box{background:#f1f5f9; border:1px solid #e2e8f0; border-radius:14px; padding:12px; margin-bottom:12px}
+  .lbl{font-size:11px; color:#64748b; font-weight:800; text-transform:uppercase}
+  .code{font-size:22px; font-weight:900; letter-spacing:.08em; margin-top:6px}
+  .row{display:flex; gap:12px}
+  .col{flex:1; border:1px solid #e2e8f0; border-radius:14px; padding:12px}
+  .val{font-size:14px; font-weight:800; margin-top:6px}
+  .exp{color:#b91c1c}
+  .note{font-size:11px; color:#64748b; margin-top:10px}
+  @media print { body{background:white} }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="head">
+      <div class="sub">Voucher AlFra</div>
+      <div class="title">${voucher.reward_name}</div>
+    </div>
+    <div class="content">
+      <div class="box">
+        <div class="lbl">Código</div>
+        <div class="code">${voucher.code}</div>
+      </div>
+
+      <div class="row">
+        <div class="col">
+          <div class="lbl">Emitido</div>
+          <div class="val">${formatDateTime(voucher.issued_at)}</div>
+        </div>
+        <div class="col">
+          <div class="lbl">Vence</div>
+          <div class="val exp">${formatDateTime(voucher.expires_at)}</div>
+        </div>
+      </div>
+
+      <div class="note">
+        Mostralo en caja para canjear. Válido por 10 días desde la emisión.
+      </div>
+    </div>
+  </div>
+
+  <script>
+    window.onload = function(){ window.print(); };
+  </script>
+</body>
+</html>`;
+
+    const w = window.open("", "_blank");
+    if (!w) {
+      setRedeemError("No se pudo abrir la vista para guardar PDF (bloqueo de popups).");
+      return;
+    }
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+  }
+
+  function whatsappLink() {
+    if (!voucher?.code) return "#";
+    const text =
+      `Hola! Canjeé mi voucher AlFra.\n` +
+      `${voucher.reward_name}\n` +
+      `Código: ${voucher.code}\n` +
+      `Vence: ${formatDateTime(voucher.expires_at)}\n` +
+      `Lo presento en caja para canjear.`;
+
+    // Este link lo manda el cliente desde su WhatsApp (NO desde el número de AlFra)
+    return `https://wa.me/?text=${encodeURIComponent(text)}`;
   }
 
   if (loading) {
@@ -449,22 +584,44 @@ export default function DashboardClient() {
                 </div>
               </div>
 
-              <div className="flex gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(voucher.code).catch(() => null);
-                  }}
-                  className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl"
+                  onClick={handleCopyCode}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl"
                 >
                   Copiar código
                 </button>
+
                 <button
-                  onClick={() => setVoucher(null)}
-                  className="px-4 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold py-3 rounded-xl"
+                  onClick={handleSavePdf}
+                  className="bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 rounded-xl"
                 >
-                  Cerrar
+                  Guardar PDF
+                </button>
+
+                <a
+                  href={whatsappLink()}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-center bg-green-600 hover:bg-green-500 text-white font-bold py-3 rounded-xl"
+                >
+                  WhatsApp
+                </a>
+
+                <button
+                  onClick={handleShare}
+                  className="bg-slate-100 hover:bg-slate-200 text-slate-900 font-bold py-3 rounded-xl border border-slate-200"
+                >
+                  Compartir
                 </button>
               </div>
+
+              <button
+                onClick={() => setVoucher(null)}
+                className="w-full bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold py-3 rounded-xl"
+              >
+                Cerrar
+              </button>
 
               <p className="text-[11px] text-slate-500">
                 Mostralo en caja para canjear. Válido por 10 días desde la emisión.
