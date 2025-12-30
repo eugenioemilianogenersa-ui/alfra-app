@@ -157,7 +157,7 @@ export async function POST(req: NextRequest) {
     }
 
     const redeemedAt = new Date().toISOString();
-    const { error: updErr } = await supabaseAdmin
+    const { data: updated, error: updErr } = await supabaseAdmin
       .from("stamps_vouchers")
       .update({
         status: "REDEEMED",
@@ -168,14 +168,66 @@ export async function POST(req: NextRequest) {
         redeemed_note: redeemed_note || null,
         updated_at: redeemedAt,
       })
-      .eq("id", v.id);
+      .eq("id", v.id)
+      .eq("status", "ISSUED")
+      .select(
+        "id, user_id, code, status, reward_name, issued_at, expires_at, redeemed_at, redeemed_by, redeemed_channel, redeemed_presenter, redeemed_note"
+      )
+      .maybeSingle();
 
     if (updErr) return NextResponse.json({ error: updErr.message }, { status: 500 });
+
+    if (!updated) {
+      const { data: latest, error: latestErr } = await supabaseAdmin
+        .from("stamps_vouchers")
+        .select(
+          "id, user_id, code, status, reward_name, issued_at, expires_at, redeemed_at, redeemed_by, redeemed_channel, redeemed_presenter, redeemed_note"
+        )
+        .eq("id", v.id)
+        .maybeSingle();
+
+      if (latestErr) return NextResponse.json({ error: latestErr.message }, { status: 500 });
+
+      const { data: latestOwner } =
+        latest?.user_id
+          ? await supabaseAdmin
+              .from("profiles")
+              .select("display_name, phone_normalized")
+              .eq("id", latest.user_id)
+              .maybeSingle()
+          : { data: null };
+
+      return NextResponse.json(
+        {
+          ok: true,
+          result: {
+            ok: false,
+            code: latest?.code ?? v.code,
+            status: latest?.status ?? v.status,
+            reward_name: latest?.reward_name ?? v.reward_name,
+            issued_at: latest?.issued_at ?? v.issued_at,
+            expires_at: latest?.expires_at ?? v.expires_at,
+            redeemed_at: latest?.redeemed_at ?? v.redeemed_at,
+            redeemed_by: latest?.redeemed_by ?? v.redeemed_by,
+            redeemed_channel: latest?.redeemed_channel ?? v.redeemed_channel,
+            redeemed_presenter: latest?.redeemed_presenter ?? v.redeemed_presenter,
+            redeemed_note: latest?.redeemed_note ?? v.redeemed_note,
+            owner: latestOwner
+              ? {
+                  display_name: latestOwner.display_name ?? null,
+                  phone_normalized: latestOwner.phone_normalized ?? null,
+                }
+              : null,
+          },
+        },
+        { status: 200 }
+      );
+    }
 
     const { data: owner } = await supabaseAdmin
       .from("profiles")
       .select("display_name, phone_normalized")
-      .eq("id", v.user_id)
+      .eq("id", updated.user_id)
       .maybeSingle();
 
     return NextResponse.json(
@@ -183,11 +235,11 @@ export async function POST(req: NextRequest) {
         ok: true,
         result: {
           ok: true,
-          code: v.code,
+          code: updated.code,
           status: "REDEEMED",
-          reward_name: v.reward_name,
-          issued_at: v.issued_at,
-          expires_at: v.expires_at,
+          reward_name: updated.reward_name,
+          issued_at: updated.issued_at,
+          expires_at: updated.expires_at,
           redeemed_at: redeemedAt,
           redeemed_by: meUser.id,
           redeemed_channel,

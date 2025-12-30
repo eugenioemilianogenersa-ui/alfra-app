@@ -9,6 +9,7 @@ export default function NuevaContraseñaPage() {
   const supabase = createClient();
   const router = useRouter();
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [msg, setMsg] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const [loading, setLoading] = useState(false);
@@ -18,6 +19,18 @@ export default function NuevaContraseñaPage() {
     setMsg("");
     setErrorMsg("");
     setLoading(true);
+
+    if (password.length < 6) {
+      setErrorMsg("La contraseña debe tener al menos 6 caracteres.");
+      setLoading(false);
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setErrorMsg("Las contraseñas no coinciden. Revisá e intentá de nuevo.");
+      setLoading(false);
+      return;
+    }
 
     const { error } = await supabase.auth.updateUser({
       password,
@@ -52,6 +65,14 @@ export default function NuevaContraseñaPage() {
             value={password}
             onChange={e => setPassword(e.target.value)}
             placeholder="Nueva contraseña"
+            className="w-full border rounded-md px-3 py-2 outline-none focus:ring-2 focus:ring-emerald-500"
+          />
+          <input
+            type="password"
+            required
+            value={confirmPassword}
+            onChange={e => setConfirmPassword(e.target.value)}
+            placeholder="Confirmar contraseña"
             className="w-full border rounded-md px-3 py-2 outline-none focus:ring-2 focus:ring-emerald-500"
           />
           <button
