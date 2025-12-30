@@ -2,6 +2,25 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
+// Soft rate limit (in-memory, best-effort)
+const RL_WINDOW_MS = 3_000; // 3s por admin
+
+type RLStore = Map<string, number>;
+const rlStore: RLStore =
+  (globalThis as any).__alfra_rl_admin_redeem || new Map<string, number>();
+(globalThis as any).__alfra_rl_admin_redeem = rlStore;
+
+function rateLimit(key: string, windowMs: number) {
+  const now = Date.now();
+  const last = rlStore.get(key) || 0;
+  const diff = now - last;
+  if (diff < windowMs) {
+    return { ok: false, retryAfterMs: windowMs - diff };
+  }
+  rlStore.set(key, now);
+  return { ok: true, retryAfterMs: 0 };
+}
+
 function normCode(raw: string) {
   return String(raw || "")
     .trim()
@@ -27,6 +46,7 @@ async function getUserFromBearer(req: NextRequest) {
 
   const { data, error } = await supabaseUser.auth.getUser();
   if (error || !data?.user) return null;
+
   return data.user;
 }
 
@@ -34,6 +54,18 @@ export async function POST(req: NextRequest) {
   try {
     const meUser = await getUserFromBearer(req);
     if (!meUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    // ✅ rate limit por admin
+    const rl = rateLimit(`admin:${meUser.id}`, RL_WINDOW_MS);
+    if (!rl.ok) {
+      return NextResponse.json(
+        { error: `Demasiados intentos. Probá en ${(rl.retryAfterMs / 1000).toFixed(0)}s.` },
+        {
+          status: 429,
+          headers: { "Retry-After": String(Math.ceil(rl.retryAfterMs / 1000)) },
+        }
+      );
+    }
 
     // ADMIN/STAFF
     const { data: me, error: meErr } = await supabaseAdmin
@@ -101,7 +133,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Si ya está canjeado/cancelado
     const st = String(v.status || "").toUpperCase();
     if (st !== "ISSUED") {
       return NextResponse.json(
@@ -125,7 +156,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Canjear
     const redeemedAt = new Date().toISOString();
     const { error: updErr } = await supabaseAdmin
       .from("stamps_vouchers")
@@ -142,7 +172,6 @@ export async function POST(req: NextRequest) {
 
     if (updErr) return NextResponse.json({ error: updErr.message }, { status: 500 });
 
-    // Titular
     const { data: owner } = await supabaseAdmin
       .from("profiles")
       .select("display_name, phone_normalized")
@@ -165,7 +194,10 @@ export async function POST(req: NextRequest) {
           redeemed_presenter: redeemed_presenter || null,
           redeemed_note: redeemed_note || null,
           owner: owner
-            ? { display_name: owner.display_name ?? null, phone_normalized: owner.phone_normalized ?? null }
+            ? {
+                display_name: owner.display_name ?? null,
+                phone_normalized: owner.phone_normalized ?? null,
+              }
             : null,
         },
       },

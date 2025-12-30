@@ -1,6 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
+// Soft rate limit (in-memory, best-effort)
+const RL_WINDOW_MS = 10_000; // 10s por usuario
+
+type RLStore = Map<string, number>;
+const rlStore: RLStore =
+  (globalThis as any).__alfra_rl_redeem || new Map<string, number>();
+(globalThis as any).__alfra_rl_redeem = rlStore;
+
+function rateLimit(key: string, windowMs: number) {
+  const now = Date.now();
+  const last = rlStore.get(key) || 0;
+  const diff = now - last;
+  if (diff < windowMs) {
+    return { ok: false, retryAfterMs: windowMs - diff };
+  }
+  rlStore.set(key, now);
+  return { ok: true, retryAfterMs: 0 };
+}
+
 function getBearer(req: NextRequest) {
   const auth = req.headers.get("authorization") || "";
   if (!auth.toLowerCase().startsWith("bearer ")) return null;
@@ -29,6 +48,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // ✅ rate limit por usuario
+    const rl = rateLimit(`user:${u.user.id}`, RL_WINDOW_MS);
+    if (!rl.ok) {
+      return NextResponse.json(
+        { error: `Demasiados intentos. Probá en ${(rl.retryAfterMs / 1000).toFixed(0)}s.` },
+        {
+          status: 429,
+          headers: { "Retry-After": String(Math.ceil(rl.retryAfterMs / 1000)) },
+        }
+      );
+    }
+
     const body = (await req.json().catch(() => null)) as any;
     const rewardName = String(body?.reward_name || "Premio").trim() || "Premio";
 
@@ -40,7 +71,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
-    // ✅ NORMALIZAR: RPC puede devolver array (set-returning function)
+    // Normalizar: RPC puede devolver array
     const row: any = Array.isArray(data) ? data[0] : data;
 
     if (!row?.code) {
@@ -57,7 +88,7 @@ export async function POST(req: NextRequest) {
         issued_at: String(row.issued_at),
         expires_at: String(row.expires_at),
         current_stamps: Number(row.current_stamps ?? 0),
-        reward_name: rewardName, // tu RPC no lo devuelve, lo fijamos acá
+        reward_name: rewardName,
       },
     });
   } catch (e: any) {
