@@ -14,7 +14,7 @@ type OwnerInfo = {
 type ValidateResult = {
   ok: boolean;
   code: string;
-  status: string;
+  status: string; // REDEEMED | ISSUED | EXPIRED | NOT_FOUND | CANCELED
   reward_name: string | null;
   issued_at: string | null;
   expires_at: string | null;
@@ -82,8 +82,6 @@ export default function AdminVouchersClient() {
   const [err, setErr] = useState<string | null>(null);
   const [result, setResult] = useState<ValidateResult | null>(null);
 
-  const barcodeRef = useRef<SVGSVGElement | null>(null);
-
   // Meta canje
   const [channel, setChannel] = useState<string>("CAJA");
   const [presenter, setPresenter] = useState<string>("");
@@ -94,6 +92,10 @@ export default function AdminVouchersClient() {
   const [historyErr, setHistoryErr] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryRow[]>([]);
   const [q, setQ] = useState("");
+
+  // Refs (caja)
+  const codeInputRef = useRef<HTMLInputElement | null>(null);
+  const barcodeRef = useRef<SVGSVGElement | null>(null);
 
   useEffect(() => {
     async function boot() {
@@ -114,13 +116,21 @@ export default function AdminVouchersClient() {
 
       setMeRole(role);
       setLoading(false);
+
       fetchHistory();
+
+      // autofocus caja
+      setTimeout(() => {
+        codeInputRef.current?.focus();
+        codeInputRef.current?.select();
+      }, 50);
     }
 
     boot();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Barcode al tener result
   useEffect(() => {
     if (!result?.code) return;
     if (!barcodeRef.current) return;
@@ -133,8 +143,42 @@ export default function AdminVouchersClient() {
         height: 54,
         width: 2,
       });
-    } catch {}
+    } catch {
+      // ignore
+    }
   }, [result?.code]);
+
+  // Enter global: buscar o confirmar canje (modo caja)
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key !== "Enter") return;
+
+      // No interferir cuando escribís observación (textarea)
+      const t = e.target as HTMLElement | null;
+      const tag = (t?.tagName || "").toLowerCase();
+      if (tag === "textarea") return;
+
+      // Si estamos en medio de requests, nada
+      if (submitting || redeeming) return;
+
+      e.preventDefault();
+
+      const st = String(result?.status || "").toUpperCase();
+
+      // Si hay resultado ISSUED -> confirmar canje
+      if (result && st === "ISSUED") {
+        redeemVoucher();
+        return;
+      }
+
+      // Sino -> buscar por código actual
+      lookupVoucher();
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result, submitting, redeeming, code]);
 
   async function getToken() {
     const { data: sess } = await supabase.auth.getSession();
@@ -183,9 +227,16 @@ export default function AdminVouchersClient() {
 
       setResult(row);
 
+      // reset meta cuando buscás un nuevo código
       setChannel("CAJA");
       setPresenter("");
       setNote("");
+
+      // volver a focus (scanner)
+      setTimeout(() => {
+        codeInputRef.current?.focus();
+        codeInputRef.current?.select();
+      }, 10);
     } catch (e: any) {
       setErr(e?.message || "Error de red.");
     } finally {
@@ -241,6 +292,13 @@ export default function AdminVouchersClient() {
 
       setResult(row);
       fetchHistory();
+
+      // listo para el siguiente: limpiar input y focus
+      setCode("");
+      setTimeout(() => {
+        codeInputRef.current?.focus();
+        codeInputRef.current?.select();
+      }, 50);
     } catch (e: any) {
       setErr(e?.message || "Error de red.");
     } finally {
@@ -317,27 +375,25 @@ export default function AdminVouchersClient() {
 
   return (
     <div className="max-w-2xl mx-auto p-6">
-      <div className="mb-6">
+      <div className="mb-2">
         <p className="text-xs font-bold text-slate-400 uppercase tracking-wide">
           Admin / Staff
         </p>
         <h1 className="text-2xl font-black text-slate-900">Vouchers (Canjes)</h1>
-        <p className="text-sm text-slate-600 mt-1">
-          Pegá el código, <b>buscá</b> los datos y luego <b>confirmá</b> el canje con observación.
-          (Rol: <span className="font-bold">{meRole.toUpperCase()}</span>)
+        <p className="text-xs text-slate-600 mt-1">
+          Caja: pegá/escaneá → <b>Enter</b> busca → <b>Enter</b> confirma (si ISSUED).
         </p>
       </div>
 
+      {/* BUSCADOR + RESULTADO */}
       <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
         <label className="text-xs font-bold text-slate-500 uppercase">Código voucher</label>
 
         <div className="mt-2 flex gap-2">
           <input
+            ref={codeInputRef}
             value={code}
             onChange={(e) => setCode(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") lookupVoucher();
-            }}
             placeholder="ALFRA-XXXX-YYYY"
             className="flex-1 rounded-xl border border-slate-300 px-3 py-3 font-mono text-sm outline-none focus:ring-2 focus:ring-emerald-400"
           />
@@ -387,9 +443,6 @@ export default function AdminVouchersClient() {
                 <div className="mt-2 flex justify-center bg-white border border-slate-200 rounded-xl p-2">
                   <svg ref={barcodeRef} />
                 </div>
-                <p className="mt-2 text-[10px] text-slate-500 text-center">
-                  (CODE128) Scanner lo lee como texto.
-                </p>
               </div>
 
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
@@ -482,6 +535,11 @@ export default function AdminVouchersClient() {
                       onClick={() => {
                         setResult(null);
                         setErr(null);
+                        setCode("");
+                        setTimeout(() => {
+                          codeInputRef.current?.focus();
+                          codeInputRef.current?.select();
+                        }, 20);
                       }}
                       className="rounded-xl px-4 py-3 font-black bg-slate-100 hover:bg-slate-200 text-slate-900"
                     >
