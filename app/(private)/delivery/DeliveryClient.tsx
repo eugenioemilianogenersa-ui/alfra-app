@@ -175,7 +175,7 @@ export default function DeliveryClient() {
     }
   };
 
-  const startTracking = (deliveryTableId: number) => {
+  const startTracking = async (deliveryTableId: number) => {
     if (!navigator.geolocation) {
       setGpsError("Tu navegador no soporta GPS.");
       return;
@@ -183,9 +183,24 @@ export default function DeliveryClient() {
     if (isTracking) return;
 
     deliveryIdActiveRef.current = deliveryTableId;
-    setIsTracking(true);
     setGpsError(null);
 
+    if (navigator.permissions?.query) {
+      try {
+        const permission = await navigator.permissions.query({ name: "geolocation" });
+        if (permission.state === "denied") {
+          setGpsError("Permiso de GPS denegado. Actívalo para continuar.");
+          setIsTracking(false);
+          deliveryIdActiveRef.current = null;
+          watchIdRef.current = null;
+          return;
+        }
+      } catch (error) {
+        console.warn("No se pudo verificar permisos de GPS.", error);
+      }
+    }
+
+    setIsTracking(true);
     const options: PositionOptions = { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 };
     const id = navigator.geolocation.watchPosition(
       async (position) => {
@@ -199,6 +214,12 @@ export default function DeliveryClient() {
       (err) => {
         const msg = (err as GeolocationPositionError).message || "Error GPS.";
         setGpsError(`Problema con GPS: ${msg}`);
+        if (watchIdRef.current !== null) {
+          navigator.geolocation.clearWatch(watchIdRef.current);
+          watchIdRef.current = null;
+        }
+        setIsTracking(false);
+        deliveryIdActiveRef.current = null;
       },
       options
     );

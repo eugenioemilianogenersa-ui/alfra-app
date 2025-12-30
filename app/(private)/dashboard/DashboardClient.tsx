@@ -441,14 +441,13 @@ export default function DashboardClient() {
 
   function whatsappLink() {
     if (!voucher?.code) return "#";
-
-    const premioFijo = "Una Pinta Clásica + 1 Burguer Simple";
+    const rewardName = (voucher.reward_name || "").trim() || "Premio AlFra";
 
     const text =
       `Hola AlFra 👋\n` +
       `Quiero canjear mi voucher.\n\n` +
       `Nombre: ${userName}\n` +
-      `Premio: ${premioFijo}\n` +
+      `Premio: ${rewardName}\n` +
       `Código: ${voucher.code}\n` +
       `Vence: ${formatDateTime(voucher.expires_at)}\n\n` +
       `Gracias!`;
