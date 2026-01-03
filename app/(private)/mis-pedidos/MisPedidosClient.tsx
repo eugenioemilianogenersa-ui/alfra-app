@@ -33,6 +33,13 @@ type DeliveryLocation = {
   lng: number;
 };
 
+type DeliveryLocationRow = {
+  id?: number;
+  delivery_id: number;
+  lat: number;
+  lng: number;
+};
+
 const ACTIVE_STATES = ["pendiente", "en preparación", "listo para entregar", "enviado"];
 
 function estadoBadgeClass(estado?: string | null) {
@@ -87,7 +94,7 @@ export default function MisPedidosClient() {
 
   // ✅ order_id -> delivery_id
   const deliveryIdByOrderIdRef = useRef<Record<number, number>>({});
-  // ✅ delivery_id -> order_id (NUEVO, para realtime INSERT)
+  // ✅ delivery_id -> order_id
   const orderIdByDeliveryIdRef = useRef<Record<number, number>>({});
 
   // Fallback ONLY si faltara delivery_nombre (por compatibilidad)
@@ -236,6 +243,7 @@ export default function MisPedidosClient() {
       return {};
     }
 
+    // Pre-cargar última posición (para que el mapa aparezca al abrir)
     const { data: locations, error: lErr } = await supabase
       .from("delivery_locations")
       .select("delivery_id, lat, lng, id")
@@ -293,27 +301,18 @@ export default function MisPedidosClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // REALTIME: orders (filtrado por user_id) + deliveries (para cuando aparece el delivery_id)
+  // REALTIME: orders (filtrado por user_id) + deliveries
   useEffect(() => {
     if (!userId) return;
 
     const ch = supabase
       .channel(`client-live-${userId}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "orders", filter: `user_id=eq.${userId}` },
-        async () => {
-          await refreshAll();
-        }
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "deliveries" },
-        async () => {
-          // deliveries no tiene user_id, pero refrescar es barato porque luego filtramos por user_id
-          await refreshAll();
-        }
-      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders", filter: `user_id=eq.${userId}` }, async () => {
+        await refreshAll();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "deliveries" }, async () => {
+        await refreshAll();
+      })
       .subscribe();
 
     return () => {
@@ -322,7 +321,7 @@ export default function MisPedidosClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
-  // REALTIME: tracking GPS instantáneo (sin polling)
+  // ✅ REALTIME tracking: usar payload del INSERT (sin fetch extra)
   useEffect(() => {
     if (!activeDeliveryIds.length) return;
 
@@ -332,11 +331,29 @@ export default function MisPedidosClient() {
         .on(
           "postgres_changes",
           { event: "INSERT", schema: "public", table: "delivery_locations", filter: `delivery_id=eq.${deliveryId}` },
-          async () => {
-            const latest = await fetchLastLocation(deliveryId);
+          async (payload) => {
+            const row = (payload?.new ?? null) as DeliveryLocationRow | null;
 
-            // ✅ AHORA sí: delivery_id -> order_id
-            const orderId = orderIdByDeliveryIdRef.current[deliveryId];
+            // Si por alguna razón no vino payload, fallback al select
+            const effectiveDeliveryId = row?.delivery_id ? Number(row.delivery_id) : Number(deliveryId);
+
+            let latest: DeliveryLocation | null = null;
+            if (row?.lat != null && row?.lng != null) {
+              latest = { lat: Number(row.lat), lng: Number(row.lng) };
+            } else {
+              latest = await fetchLastLocation(effectiveDeliveryId);
+            }
+
+            // Map delivery_id -> order_id (con fallback seguro)
+            let orderId = orderIdByDeliveryIdRef.current[effectiveDeliveryId];
+
+            // fallback: buscar en order->delivery si todavía no estaba el reverse map cargado
+            if (!orderId) {
+              const map = deliveryIdByOrderIdRef.current;
+              const found = Object.keys(map).find((k) => map[Number(k)] === effectiveDeliveryId);
+              orderId = found ? Number(found) : 0;
+            }
+
             if (!orderId) return;
 
             setTrackingByOrderId((prev) => ({
@@ -349,9 +366,7 @@ export default function MisPedidosClient() {
     );
 
     return () => {
-      channels.forEach((chLoc) => {
-        supabase.removeChannel(chLoc);
-      });
+      channels.forEach((chLoc) => supabase.removeChannel(chLoc));
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeDeliveryIds.join(",")]);
@@ -369,7 +384,6 @@ export default function MisPedidosClient() {
       )}
 
       {orders.map((o) => {
-        // ✅ prioridad: orders.delivery_nombre (denormalizado) -> fallback -> null
         const deliveryName = o.delivery_nombre || o.repartidor_nombre || null;
 
         return (
