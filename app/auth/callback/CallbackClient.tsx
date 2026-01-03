@@ -8,32 +8,59 @@ export default function CallbackClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const supabase = createClient();
-
   const [msg, setMsg] = useState("Procesando autenticación...");
 
   useEffect(() => {
     async function run() {
       try {
-        const error = searchParams.get("error");
-        const errorDescription = searchParams.get("error_description");
+        // 1) Si ya hay sesión, chau callback
+        const { data: s1 } = await supabase.auth.getSession();
+        if (s1.session) {
+          router.replace("/dashboard");
+          return;
+        }
 
-        // Si cayó acá con error explícito
-        if (error) {
-          setMsg(errorDescription || "No se pudo iniciar sesión.");
+        // 2) Si vino con error explícito
+        const err = searchParams.get("error");
+        const errDesc = searchParams.get("error_description");
+        if (err) {
+          setMsg(errDesc || "No se pudo iniciar sesión.");
           setTimeout(() => router.replace("/login"), 900);
           return;
         }
 
-        const code = searchParams.get("code");
+        // 3) Si hay hash (#access_token=...) (suele pasar en verify email / magic link)
+        if (typeof window !== "undefined" && window.location.hash?.length > 1) {
+          // getSessionFromUrl existe en supabase-js v2; si no existiera, no rompe
+          const anyAuth = supabase.auth as any;
+          if (typeof anyAuth.getSessionFromUrl === "function") {
+            const { data, error } = await anyAuth.getSessionFromUrl({ storeSession: true });
+            if (!error && data?.session) {
+              router.replace("/dashboard");
+              return;
+            }
+          }
+        }
 
-        // ✅ PRO: si no hay code, es acceso directo -> afuera
+        // 4) OAuth PKCE: viene con ?code=
+        const code = searchParams.get("code");
         if (!code) {
+          // acceso directo o link incompleto => no mostramos error
           router.replace("/login");
           return;
         }
 
         const { error: exErr } = await supabase.auth.exchangeCodeForSession(code);
+
         if (exErr) {
+          const m = (exErr.message || "").toLowerCase();
+
+          // caso típico: falta code_verifier (no asustar al usuario)
+          if (m.includes("code verifier") || m.includes("code_verifier")) {
+            router.replace("/login");
+            return;
+          }
+
           setMsg(exErr.message || "Error procesando el login.");
           setTimeout(() => router.replace("/login"), 900);
           return;
@@ -41,8 +68,7 @@ export default function CallbackClient() {
 
         router.replace("/dashboard");
       } catch {
-        setMsg("Error inesperado. Volviendo al login...");
-        setTimeout(() => router.replace("/login"), 900);
+        router.replace("/login");
       }
     }
 
