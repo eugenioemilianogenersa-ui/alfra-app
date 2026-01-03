@@ -17,6 +17,10 @@ export default function PrivateLayout({ children }: { children: React.ReactNode 
   const [menuOpen, setMenuOpen] = useState(false);
   const [userRole, setUserRole] = useState<string | null>(null);
 
+  // Nuevo: gate por teléfono (solo cliente / admin preview)
+  const [phoneChecked, setPhoneChecked] = useState(false);
+  const [hasPhone, setHasPhone] = useState(true);
+
   useEffect(() => {
     async function checkSession() {
       const { data } = await supabase.auth.getSession();
@@ -50,7 +54,6 @@ export default function PrivateLayout({ children }: { children: React.ReactNode 
     return {
       delivery: ["/delivery", "/perfil"],
 
-      // ✅ CLIENTE (FIX: agregamos choperas + Beneficios)
       cliente: [
         "/dashboard",
         "/carta",
@@ -61,7 +64,6 @@ export default function PrivateLayout({ children }: { children: React.ReactNode 
         "/perfil",
       ],
 
-      // ✅ STAFF: agregamos vouchers
       staff: [
         "/admin",
         "/admin/usuarios",
@@ -71,7 +73,6 @@ export default function PrivateLayout({ children }: { children: React.ReactNode 
         "/admin/vouchers",
       ],
 
-      // Admin preview (modo cliente)
       adminPreview: [
         "/dashboard",
         "/carta",
@@ -85,7 +86,7 @@ export default function PrivateLayout({ children }: { children: React.ReactNode 
     } as const;
   }, []);
 
-  // Guard para roles no-panel
+  // Guard de rutas por rol (igual que antes)
   useEffect(() => {
     if (checking) return;
     if (!userRole) return;
@@ -109,7 +110,78 @@ export default function PrivateLayout({ children }: { children: React.ReactNode 
     }
   }, [checking, userRole, pathname, searchParams, router, allowedByRole]);
 
-  if (checking) {
+  // ✅ NUEVO: Gate de teléfono para cliente/adminPreview
+  useEffect(() => {
+    async function checkPhoneGate() {
+      if (checking) return;
+      if (!userRole) return;
+
+      const isAdminPanel = userRole === "admin" && searchParams.get("preview") !== "true";
+      const isStaffPanel = userRole === "staff";
+      const isDelivery = userRole === "delivery";
+      if (isAdminPanel || isStaffPanel || isDelivery) {
+        setHasPhone(true);
+        setPhoneChecked(true);
+        return;
+      }
+
+      const isAdminPreview = userRole === "admin" && searchParams.get("preview") === "true";
+      const isCliente = userRole === "cliente" || isAdminPreview;
+
+      // Solo aplica a "cliente" (y admin preview como cliente)
+      if (!isCliente) {
+        setHasPhone(true);
+        setPhoneChecked(true);
+        return;
+      }
+
+      // Permitimos /perfil SIEMPRE (para que pueda cargar teléfono)
+      if (pathname === "/perfil" || pathname.startsWith("/perfil/")) {
+        setPhoneChecked(true);
+        return;
+      }
+
+      try {
+        const { data: authData } = await supabase.auth.getUser();
+        const uid = authData.user?.id;
+        if (!uid) {
+          setHasPhone(true);
+          setPhoneChecked(true);
+          return;
+        }
+
+        const { data: p, error } = await supabase
+          .from("profiles")
+          .select("phone_normalized, phone")
+          .eq("id", uid)
+          .maybeSingle();
+
+        if (error) {
+          console.warn("phone gate: profiles read error:", error.message);
+          // si no podemos leer, NO bloqueamos para no romper UX por RLS/momento
+          setHasPhone(true);
+          setPhoneChecked(true);
+          return;
+        }
+
+        const ok = !!(p?.phone_normalized || p?.phone);
+        setHasPhone(ok);
+        setPhoneChecked(true);
+
+        if (!ok) {
+          router.replace("/perfil?required_phone=1");
+        }
+      } catch (e) {
+        console.warn("phone gate: unexpected error", e);
+        setHasPhone(true);
+        setPhoneChecked(true);
+      }
+    }
+
+    checkPhoneGate();
+  }, [checking, userRole, pathname, searchParams, router, supabase]);
+
+  if (checking || !phoneChecked) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-100">
         Cargando...
@@ -149,6 +221,15 @@ export default function PrivateLayout({ children }: { children: React.ReactNode 
             <a href="/admin" className="underline">
               Volver al Panel
             </a>
+          </div>
+        )}
+
+        {/* Banner suave si está sin teléfono y está justo en /perfil */}
+        {!hasPhone && (pathname === "/perfil" || pathname.startsWith("/perfil/")) && (
+          <div className="max-w-3xl mx-auto px-6">
+            <div className="mt-2 mb-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+              Para activar el seguimiento de pedidos y beneficios, cargá tu celular y guardá los cambios.
+            </div>
           </div>
         )}
 
