@@ -4,6 +4,7 @@ export const dynamic = "force-dynamic";
 import { useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabaseClient";
+import Image from "next/image";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -58,7 +59,6 @@ export default function SignupPage() {
       email,
       password,
       options: {
-        // IMPORTANTE: con Confirm email ON, este redirect es el que se usa al confirmar
         emailRedirectTo: `${origin}/auth/callback`,
         data: {
           phone: cleanPhone,
@@ -74,11 +74,8 @@ export default function SignupPage() {
       return;
     }
 
-    // Con Confirm email ON, el user queda "pendiente" hasta confirmar
     setMsg("Cuenta creada. Revisá tu email para confirmar y luego ingresá.");
-    setTimeout(() => {
-      router.push("/login");
-    }, 1800);
+    setTimeout(() => router.push("/login"), 1800);
   }
 
   return (
@@ -89,13 +86,14 @@ export default function SignupPage() {
           Tus pedidos de Fudo y mostrador se vincularán automáticamente a tu número.
         </p>
 
-        {/* Google option */}
+        {/* GOOGLE */}
         <button
           type="button"
           onClick={handleGoogle}
           disabled={loading}
-          className="w-full border rounded-md py-2 font-semibold text-sm hover:bg-slate-50 disabled:opacity-60 transition"
+          className="w-full flex items-center justify-center gap-3 border border-slate-300 rounded-md py-2 text-sm font-semibold hover:bg-slate-50 disabled:opacity-60 transition"
         >
+          <Image src="/google.svg" alt="Google" width={18} height={18} />
           Continuar con Google
         </button>
 
