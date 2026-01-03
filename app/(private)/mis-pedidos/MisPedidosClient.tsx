@@ -91,6 +91,10 @@ export default function MisPedidosClient() {
   // delivery_id -> order_id
   const orderIdByDeliveryIdRef = useRef<Record<number, number>>({});
 
+  // UI estado botón
+  const [updatingOrderId, setUpdatingOrderId] = useState<number | null>(null);
+  const [updateMsgByOrderId, setUpdateMsgByOrderId] = useState<Record<number, string>>({});
+
   const enrichWithDeliveryNameFallback = async (rows: any[]): Promise<Order[]> => {
     if (!rows?.length) return [];
     const needFallback = rows.some((o) => !o.delivery_nombre);
@@ -211,6 +215,7 @@ export default function MisPedidosClient() {
       if (!row?.id || !row?.order_id) return;
       const deliveryId = Number(row.id);
       const orderId = Number(row.order_id);
+
       nextDeliveryIdByOrderId[orderId] = deliveryId;
       nextOrderIdByDeliveryId[deliveryId] = orderId;
       deliveryIds.push(deliveryId);
@@ -260,6 +265,46 @@ export default function MisPedidosClient() {
     await refreshActiveDelivery(uid);
   };
 
+  // ✅ BOTÓN: actualizar ubicación “ya”
+  const handleManualRefreshLocation = async (orderId: number) => {
+    const deliveryId = deliveryIdByOrderIdRef.current[orderId];
+    if (!deliveryId) {
+      setUpdateMsgByOrderId((prev) => ({ ...prev, [orderId]: "⚠️ Aún no hay delivery asignado." }));
+      window.setTimeout(() => {
+        setUpdateMsgByOrderId((prev) => {
+          const next = { ...prev };
+          delete next[orderId];
+          return next;
+        });
+      }, 2500);
+      return;
+    }
+
+    setUpdatingOrderId(orderId);
+    setUpdateMsgByOrderId((prev) => ({ ...prev, [orderId]: "Actualizando..." }));
+
+    try {
+      const latest = await fetchLastLocation(deliveryId);
+      if (!latest) {
+        setUpdateMsgByOrderId((prev) => ({ ...prev, [orderId]: "⚠️ Sin señal del delivery aún." }));
+        return;
+      }
+
+      setTrackingByOrderId((prev) => ({ ...prev, [orderId]: latest }));
+      setUpdateMsgByOrderId((prev) => ({ ...prev, [orderId]: "✅ Ubicación actualizada" }));
+    } finally {
+      setUpdatingOrderId(null);
+      window.setTimeout(() => {
+        setUpdateMsgByOrderId((prev) => {
+          const next = { ...prev };
+          delete next[orderId];
+          return next;
+        });
+      }, 2500);
+    }
+  };
+
+  // INIT
   useEffect(() => {
     const init = async () => {
       const { data } = await supabase.auth.getUser();
@@ -284,6 +329,7 @@ export default function MisPedidosClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // REALTIME: orders + deliveries
   useEffect(() => {
     if (!userId) return;
 
@@ -303,7 +349,7 @@ export default function MisPedidosClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
-  // ✅ REALTIME: usa payload.new
+  // REALTIME locations: payload.new
   useEffect(() => {
     if (!activeDeliveryIds.length) return;
 
@@ -340,7 +386,7 @@ export default function MisPedidosClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeDeliveryIds.join(",")]);
 
-  // ✅ FALLBACK “PedidosYa”: polling suave cada 4s SOLO si hay deliveries activos
+  // FALLBACK polling suave 4s
   useEffect(() => {
     if (!activeDeliveryIds.length) return;
 
@@ -364,16 +410,13 @@ export default function MisPedidosClient() {
 
         setTrackingByOrderId((prev) => {
           const prevLoc = prev[orderId];
-          // evita re-render si no cambió
           if (prevLoc && prevLoc.lat === latest.lat && prevLoc.lng === latest.lng) return prev;
           return { ...prev, [orderId]: latest };
         });
       }
     };
 
-    // primera corrida rápida
     tick();
-
     const iv = window.setInterval(tick, 4000);
 
     return () => {
@@ -397,6 +440,7 @@ export default function MisPedidosClient() {
 
       {orders.map((o) => {
         const deliveryName = o.delivery_nombre || o.repartidor_nombre || null;
+        const hasTracking = o.estado === "enviado" && trackingByOrderId[o.id];
 
         return (
           <div
@@ -421,12 +465,30 @@ export default function MisPedidosClient() {
               {deliveryName && <p className="font-semibold text-slate-700">🛵 Delivery: {deliveryName}</p>}
             </div>
 
-            {o.estado === "enviado" && trackingByOrderId[o.id] && (
+            {o.estado === "enviado" && hasTracking && (
               <div className="border-t">
                 <div className="bg-yellow-100 p-2 text-center text-xs font-extrabold text-yellow-900 flex items-center justify-center gap-2 border-b border-yellow-200">
                   🛵 TU PEDIDO ESTÁ EN CAMINO
                 </div>
+
                 <DeliveryMap lat={trackingByOrderId[o.id]!.lat} lng={trackingByOrderId[o.id]!.lng} />
+
+                {/* ✅ CTA: Actualizar ubicación */}
+                <div className="p-3 bg-white border-t">
+                  <button
+                    onClick={() => handleManualRefreshLocation(o.id)}
+                    disabled={updatingOrderId === o.id}
+                    className="w-full bg-slate-900 hover:bg-slate-950 active:bg-black text-white font-extrabold py-3 rounded-lg shadow transition-transform active:scale-95 disabled:opacity-60"
+                  >
+                    {updatingOrderId === o.id ? "⏳ Actualizando..." : "🔄 Actualizar ubicación del delivery"}
+                  </button>
+
+                  {updateMsgByOrderId[o.id] && (
+                    <p className="mt-2 text-center text-xs font-bold text-slate-600">
+                      {updateMsgByOrderId[o.id]}
+                    </p>
+                  )}
+                </div>
               </div>
             )}
           </div>
