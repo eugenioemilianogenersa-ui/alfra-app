@@ -10,58 +10,49 @@ import { createClient } from "@/lib/supabaseClient";
 export default function LoginPage() {
   const router = useRouter();
   const supabase = createClient();
-
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const origin =
-    typeof window !== "undefined" ? window.location.origin : "http://localhost:3000";
-
   useEffect(() => {
     async function check() {
       const { data } = await supabase.auth.getSession();
-      if (data.session) router.replace("/dashboard");
+      if (data.session) {
+        router.replace("/dashboard");
+      }
     }
     check();
   }, [router, supabase]);
-
-  async function handleGoogle() {
-    setErrorMsg("");
-    setLoading(true);
-
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: `${origin}/auth/callback`,
-      },
-    });
-
-    setLoading(false);
-    if (error) setErrorMsg(error.message);
-  }
 
   async function handleLogin(e: FormEvent) {
     e.preventDefault();
     setErrorMsg("");
     setLoading(true);
 
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
 
     setLoading(false);
 
     if (error) {
-      const msg = error.message || "No se pudo iniciar sesión.";
-      if (msg.toLowerCase().includes("not confirmed")) {
-        setErrorMsg("Tu email todavía no está confirmado. Revisá tu correo y confirmá la cuenta.");
-      } else {
-        setErrorMsg(msg);
-      }
+      setErrorMsg(error.message);
       return;
     }
 
     router.push("/dashboard");
+  }
+
+  async function handleGoogle() {
+    setLoading(true);
+    await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`,
+      },
+    });
   }
 
   return (
@@ -80,22 +71,29 @@ export default function LoginPage() {
 
         <div className="text-center">
           <h1 className="text-xl font-semibold mb-1">Ingresar a AlFra</h1>
-          <p className="text-sm text-gray-500">Entrá con tu correo y contraseña o Google.</p>
+          <p className="text-sm text-gray-500">
+            Entrá con tu correo y contraseña o Google.
+          </p>
         </div>
 
+        {/* GOOGLE */}
         <button
-          type="button"
           onClick={handleGoogle}
           disabled={loading}
-          className="w-full border rounded-md py-2 font-semibold text-sm hover:bg-white disabled:opacity-60 transition"
+          className="w-full flex items-center justify-center gap-3 border border-slate-300 rounded-md py-2 text-sm font-medium hover:bg-slate-50 transition disabled:opacity-60"
         >
+          <Image
+            src="/google.svg"
+            alt="Google"
+            width={18}
+            height={18}
+          />
           Continuar con Google
         </button>
 
-        <div className="flex items-center gap-3">
-          <div className="h-px bg-slate-200 flex-1" />
-          <div className="text-xs text-slate-400">o</div>
-          <div className="h-px bg-slate-200 flex-1" />
+        <div className="relative text-center">
+          <span className="text-xs text-gray-400 bg-white px-2 relative z-10">o</span>
+          <div className="absolute inset-x-0 top-1/2 h-px bg-gray-200"></div>
         </div>
 
         <form onSubmit={handleLogin} className="space-y-4">
@@ -131,16 +129,24 @@ export default function LoginPage() {
             {loading ? "Ingresando..." : "Ingresar"}
           </button>
 
-          {errorMsg && <p className="text-sm text-red-600 text-center">{errorMsg}</p>}
+          {errorMsg && (
+            <p className="text-sm text-red-600 text-center">{errorMsg}</p>
+          )}
         </form>
 
         <div className="flex flex-col items-center gap-2 pt-2">
-          <Link href="/recuperar" className="text-sm text-emerald-700 hover:underline">
+          <Link
+            href="/recuperar"
+            className="text-sm text-emerald-700 hover:underline"
+          >
             Recuperar contraseña
           </Link>
           <p className="text-sm text-gray-500">
             ¿No tenés cuenta?{" "}
-            <Link href="/signup" className="font-semibold text-emerald-700 hover:underline">
+            <Link
+              href="/signup"
+              className="font-semibold text-emerald-700 hover:underline"
+            >
               Crear cuenta
             </Link>
           </p>
