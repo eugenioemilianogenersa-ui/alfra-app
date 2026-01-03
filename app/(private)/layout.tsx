@@ -17,9 +17,9 @@ export default function PrivateLayout({ children }: { children: React.ReactNode 
   const [menuOpen, setMenuOpen] = useState(false);
   const [userRole, setUserRole] = useState<string | null>(null);
 
-  // Nuevo: gate por teléfono (solo cliente / admin preview)
-  const [phoneChecked, setPhoneChecked] = useState(false);
-  const [hasPhone, setHasPhone] = useState(true);
+  // gate tel
+  const [phoneGateChecking, setPhoneGateChecking] = useState(true);
+  const [needsPhone, setNeedsPhone] = useState(false);
 
   useEffect(() => {
     async function checkSession() {
@@ -29,7 +29,6 @@ export default function PrivateLayout({ children }: { children: React.ReactNode 
         return;
       }
 
-      // Rol por RPC (no depende de RLS de profiles)
       const { data: role, error } = await supabase.rpc("get_my_role");
       if (error) {
         console.error("get_my_role error:", error.message);
@@ -45,54 +44,23 @@ export default function PrivateLayout({ children }: { children: React.ReactNode 
     checkSession();
   }, [router, supabase]);
 
-  useEffect(() => {
-    setMenuOpen(false);
-  }, [pathname]);
+  useEffect(() => setMenuOpen(false), [pathname]);
 
-  // ✅ Rutas permitidas por rol
   const allowedByRole = useMemo(() => {
     return {
       delivery: ["/delivery", "/perfil"],
-
-      cliente: [
-        "/dashboard",
-        "/carta",
-        "/choperas",
-        "/Beneficios",
-        "/mis-pedidos",
-        "/puntos",
-        "/perfil",
-      ],
-
-      staff: [
-        "/admin",
-        "/admin/usuarios",
-        "/admin/puntos",
-        "/admin/pedidos",
-        "/admin/sellos",
-        "/admin/vouchers",
-      ],
-
-      adminPreview: [
-        "/dashboard",
-        "/carta",
-        "/choperas",
-        "/Beneficios",
-        "/mis-pedidos",
-        "/puntos",
-        "/perfil",
-        "/delivery",
-      ],
+      cliente: ["/dashboard", "/carta", "/choperas", "/Beneficios", "/mis-pedidos", "/puntos", "/perfil"],
+      staff: ["/admin", "/admin/usuarios", "/admin/puntos", "/admin/pedidos", "/admin/sellos", "/admin/vouchers"],
+      adminPreview: ["/dashboard", "/carta", "/choperas", "/Beneficios", "/mis-pedidos", "/puntos", "/perfil", "/delivery"],
     } as const;
   }, []);
 
-  // Guard de rutas por rol (igual que antes)
+  // Guard por rol (igual que antes)
   useEffect(() => {
     if (checking) return;
     if (!userRole) return;
 
     const isAdminPreview = userRole === "admin" && searchParams.get("preview") === "true";
-
     const isAdminPanel = userRole === "admin" && searchParams.get("preview") !== "true";
     const isStaffPanel = userRole === "staff";
     if (isAdminPanel || isStaffPanel) return;
@@ -100,93 +68,69 @@ export default function PrivateLayout({ children }: { children: React.ReactNode 
     const roleKey = isAdminPreview ? "adminPreview" : (userRole as "delivery" | "cliente");
     const allowed = (allowedByRole as any)[roleKey] ?? allowedByRole.cliente;
 
-    const isAllowed = allowed.some(
-      (base: string) => pathname === base || pathname.startsWith(base + "/")
-    );
-
+    const isAllowed = allowed.some((base: string) => pathname === base || pathname.startsWith(base + "/"));
     if (!isAllowed) {
-      const fallback = roleKey === "delivery" ? "/delivery" : "/dashboard";
-      router.replace(fallback);
+      router.replace(roleKey === "delivery" ? "/delivery" : "/dashboard");
     }
   }, [checking, userRole, pathname, searchParams, router, allowedByRole]);
 
-  // ✅ NUEVO: Gate de teléfono para cliente/adminPreview
+  // ✅ Gate TEL por RPC (NO depende de RLS)
   useEffect(() => {
-    async function checkPhoneGate() {
+    async function runPhoneGate() {
       if (checking) return;
       if (!userRole) return;
 
       const isAdminPanel = userRole === "admin" && searchParams.get("preview") !== "true";
       const isStaffPanel = userRole === "staff";
       const isDelivery = userRole === "delivery";
+
+      // No bloquear panel admin/staff ni delivery
       if (isAdminPanel || isStaffPanel || isDelivery) {
-        setHasPhone(true);
-        setPhoneChecked(true);
+        setNeedsPhone(false);
+        setPhoneGateChecking(false);
         return;
       }
 
       const isAdminPreview = userRole === "admin" && searchParams.get("preview") === "true";
       const isCliente = userRole === "cliente" || isAdminPreview;
 
-      // Solo aplica a "cliente" (y admin preview como cliente)
       if (!isCliente) {
-        setHasPhone(true);
-        setPhoneChecked(true);
+        setNeedsPhone(false);
+        setPhoneGateChecking(false);
         return;
       }
 
-      // Permitimos /perfil SIEMPRE (para que pueda cargar teléfono)
+      // /perfil siempre permitido
       if (pathname === "/perfil" || pathname.startsWith("/perfil/")) {
-        setPhoneChecked(true);
+        const { data: need } = await supabase.rpc("get_my_phone_required");
+        setNeedsPhone(Boolean(need));
+        setPhoneGateChecking(false);
         return;
       }
 
-      try {
-        const { data: authData } = await supabase.auth.getUser();
-        const uid = authData.user?.id;
-        if (!uid) {
-          setHasPhone(true);
-          setPhoneChecked(true);
-          return;
-        }
+      const { data: need, error } = await supabase.rpc("get_my_phone_required");
 
-        const { data: p, error } = await supabase
-          .from("profiles")
-          .select("phone_normalized, phone")
-          .eq("id", uid)
-          .maybeSingle();
+      // ✅ Si hay error, BLOQUEAMOS igual (más seguro)
+      if (error) {
+        console.warn("get_my_phone_required error:", error.message);
+        router.replace("/perfil?required_phone=1");
+        return;
+      }
 
-        if (error) {
-          console.warn("phone gate: profiles read error:", error.message);
-          // si no podemos leer, NO bloqueamos para no romper UX por RLS/momento
-          setHasPhone(true);
-          setPhoneChecked(true);
-          return;
-        }
+      const must = Boolean(need);
+      setNeedsPhone(must);
+      setPhoneGateChecking(false);
 
-        const ok = !!(p?.phone_normalized || p?.phone);
-        setHasPhone(ok);
-        setPhoneChecked(true);
-
-        if (!ok) {
-          router.replace("/perfil?required_phone=1");
-        }
-      } catch (e) {
-        console.warn("phone gate: unexpected error", e);
-        setHasPhone(true);
-        setPhoneChecked(true);
+      if (must) {
+        router.replace("/perfil?required_phone=1");
       }
     }
 
-    checkPhoneGate();
+    runPhoneGate();
   }, [checking, userRole, pathname, searchParams, router, supabase]);
 
-  if (checking || !phoneChecked) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-100">
-        Cargando...
-      </div>
-    );
+  if (checking || phoneGateChecking) {
+    return <div className="min-h-screen flex items-center justify-center bg-slate-100">Cargando...</div>;
   }
 
   const isAdminPanel = userRole === "admin" && searchParams.get("preview") !== "true";
@@ -217,18 +161,14 @@ export default function PrivateLayout({ children }: { children: React.ReactNode 
       <div className="min-h-screen bg-slate-50 relative pb-20">
         {userRole === "admin" && searchParams.get("preview") === "true" && (
           <div className="fixed top-0 left-0 right-0 bg-amber-200 text-amber-900 text-[10px] text-center py-1 z-60 font-bold shadow-sm">
-            MODO VISTA PREVIA •{" "}
-            <a href="/admin" className="underline">
-              Volver al Panel
-            </a>
+            MODO VISTA PREVIA • <a href="/admin" className="underline">Volver al Panel</a>
           </div>
         )}
 
-        {/* Banner suave si está sin teléfono y está justo en /perfil */}
-        {!hasPhone && (pathname === "/perfil" || pathname.startsWith("/perfil/")) && (
+        {needsPhone && (pathname === "/perfil" || pathname.startsWith("/perfil/")) && (
           <div className="max-w-3xl mx-auto px-6">
             <div className="mt-2 mb-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-              Para activar el seguimiento de pedidos y beneficios, cargá tu celular y guardá los cambios.
+              Para activar seguimiento de pedidos y beneficios, cargá tu celular y guardá los cambios.
             </div>
           </div>
         )}
