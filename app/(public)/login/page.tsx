@@ -10,11 +10,13 @@ import { createClient } from "@/lib/supabaseClient";
 export default function LoginPage() {
   const router = useRouter();
   const supabase = createClient();
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const [loading, setLoading] = useState(false);
 
+  // Si ya hay sesión → dashboard
   useEffect(() => {
     async function check() {
       const { data } = await supabase.auth.getSession();
@@ -45,12 +47,13 @@ export default function LoginPage() {
     router.push("/dashboard");
   }
 
-  async function handleGoogle() {
-    setLoading(true);
+  async function handleGoogleLogin() {
+    const origin = window.location.origin;
+
     await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: `${origin}/auth/callback`,
       },
     });
   }
@@ -58,17 +61,20 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-linear-to-br from-black via-green-950 to-black px-4">
       <div className="bg-white/95 shadow-lg rounded-2xl w-full max-w-md px-10 py-10 space-y-6">
+
+        {/* LOGO */}
         <div className="flex flex-col items-center gap-2">
           <Image
             src="/logo-alfra.png"
             alt="AlFra"
             width={100}
             height={100}
-            className="object-contain"
+            priority
           />
           <h2 className="text-center text-lg font-semibold">AlFra</h2>
         </div>
 
+        {/* TITULO */}
         <div className="text-center">
           <h1 className="text-xl font-semibold mb-1">Ingresar a AlFra</h1>
           <p className="text-sm text-gray-500">
@@ -78,9 +84,8 @@ export default function LoginPage() {
 
         {/* GOOGLE */}
         <button
-          onClick={handleGoogle}
-          disabled={loading}
-          className="w-full flex items-center justify-center gap-3 border border-slate-300 rounded-md py-2 text-sm font-medium hover:bg-slate-50 transition disabled:opacity-60"
+          onClick={handleGoogleLogin}
+          className="w-full flex items-center justify-center gap-3 border border-gray-300 rounded-md py-2 text-sm font-medium hover:bg-gray-50 transition"
         >
           <Image
             src="/google.svg"
@@ -91,11 +96,13 @@ export default function LoginPage() {
           Continuar con Google
         </button>
 
-        <div className="relative text-center">
-          <span className="text-xs text-gray-400 bg-white px-2 relative z-10">o</span>
-          <div className="absolute inset-x-0 top-1/2 h-px bg-gray-200"></div>
+        <div className="flex items-center gap-3">
+          <div className="flex-1 h-px bg-gray-200" />
+          <span className="text-xs text-gray-400">o</span>
+          <div className="flex-1 h-px bg-gray-200" />
         </div>
 
+        {/* FORM */}
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
             <label className="block text-sm font-medium mb-1">Email</label>
@@ -105,7 +112,6 @@ export default function LoginPage() {
               value={email}
               onChange={e => setEmail(e.target.value)}
               className="w-full rounded-md border px-3 py-2 focus:ring-2 focus:ring-emerald-500"
-              placeholder="tu@correo.com"
             />
           </div>
 
@@ -117,14 +123,13 @@ export default function LoginPage() {
               value={password}
               onChange={e => setPassword(e.target.value)}
               className="w-full rounded-md border px-3 py-2 focus:ring-2 focus:ring-emerald-500"
-              placeholder="••••••••"
             />
           </div>
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-[#7b634f] text-white py-2 rounded-md font-semibold hover:bg-[#6d5745] transition disabled:opacity-60"
+            className="w-full bg-[#7b634f] text-white py-2 rounded-md font-semibold hover:bg-[#6d5745] disabled:opacity-60"
           >
             {loading ? "Ingresando..." : "Ingresar"}
           </button>
@@ -134,19 +139,14 @@ export default function LoginPage() {
           )}
         </form>
 
+        {/* LINKS */}
         <div className="flex flex-col items-center gap-2 pt-2">
-          <Link
-            href="/recuperar"
-            className="text-sm text-emerald-700 hover:underline"
-          >
+          <Link href="/recuperar" className="text-sm text-emerald-700 hover:underline">
             Recuperar contraseña
           </Link>
           <p className="text-sm text-gray-500">
             ¿No tenés cuenta?{" "}
-            <Link
-              href="/signup"
-              className="font-semibold text-emerald-700 hover:underline"
-            >
+            <Link href="/signup" className="font-semibold text-emerald-700 hover:underline">
               Crear cuenta
             </Link>
           </p>
