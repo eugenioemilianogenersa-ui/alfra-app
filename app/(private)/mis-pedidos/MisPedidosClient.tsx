@@ -84,7 +84,11 @@ export default function MisPedidosClient() {
 
   const [activeDeliveryIds, setActiveDeliveryIds] = useState<number[]>([]);
   const [trackingByOrderId, setTrackingByOrderId] = useState<Record<number, DeliveryLocation | null>>({});
+
+  // ✅ order_id -> delivery_id
   const deliveryIdByOrderIdRef = useRef<Record<number, number>>({});
+  // ✅ delivery_id -> order_id (NUEVO, para realtime INSERT)
+  const orderIdByDeliveryIdRef = useRef<Record<number, number>>({});
 
   // Fallback ONLY si faltara delivery_nombre (por compatibilidad)
   const enrichWithDeliveryNameFallback = async (rows: any[]): Promise<Order[]> => {
@@ -187,6 +191,7 @@ export default function MisPedidosClient() {
 
     if (!currentOrders?.length) {
       deliveryIdByOrderIdRef.current = {};
+      orderIdByDeliveryIdRef.current = {};
       setActiveDeliveryIds([]);
       setTrackingByOrderId({});
       return {};
@@ -202,16 +207,22 @@ export default function MisPedidosClient() {
     if (dErr) console.error("Error buscando deliveries:", dErr.message);
 
     const nextDeliveryIdByOrderId: Record<number, number> = {};
+    const nextOrderIdByDeliveryId: Record<number, number> = {};
     const deliveryIds: number[] = [];
 
     (deliveryRows ?? []).forEach((row) => {
       if (!row?.id || !row?.order_id) return;
       const deliveryId = Number(row.id);
-      nextDeliveryIdByOrderId[row.order_id] = deliveryId;
+      const orderId = Number(row.order_id);
+
+      nextDeliveryIdByOrderId[orderId] = deliveryId;
+      nextOrderIdByDeliveryId[deliveryId] = orderId;
+
       deliveryIds.push(deliveryId);
     });
 
     deliveryIdByOrderIdRef.current = nextDeliveryIdByOrderId;
+    orderIdByDeliveryIdRef.current = nextOrderIdByDeliveryId;
     setActiveDeliveryIds(deliveryIds);
 
     if (!deliveryIds.length) {
@@ -323,8 +334,11 @@ export default function MisPedidosClient() {
           { event: "INSERT", schema: "public", table: "delivery_locations", filter: `delivery_id=eq.${deliveryId}` },
           async () => {
             const latest = await fetchLastLocation(deliveryId);
-            const orderId = deliveryIdByOrderIdRef.current[deliveryId];
+
+            // ✅ AHORA sí: delivery_id -> order_id
+            const orderId = orderIdByDeliveryIdRef.current[deliveryId];
             if (!orderId) return;
+
             setTrackingByOrderId((prev) => ({
               ...prev,
               [orderId]: latest,
@@ -383,9 +397,7 @@ export default function MisPedidosClient() {
               <p>📍 {o.direccion_entrega}</p>
               <p className="font-bold text-emerald-600">💰 Total: ${o.monto}</p>
 
-              {deliveryName && (
-                <p className="font-semibold text-slate-700">🛵 Delivery: {deliveryName}</p>
-              )}
+              {deliveryName && <p className="font-semibold text-slate-700">🛵 Delivery: {deliveryName}</p>}
             </div>
 
             {o.estado === "enviado" && trackingByOrderId[o.id] && (
