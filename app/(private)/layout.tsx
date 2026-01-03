@@ -17,7 +17,7 @@ export default function PrivateLayout({ children }: { children: React.ReactNode 
   const [menuOpen, setMenuOpen] = useState(false);
   const [userRole, setUserRole] = useState<string | null>(null);
 
-  // gate tel
+  // Gate TEL
   const [phoneGateChecking, setPhoneGateChecking] = useState(true);
   const [needsPhone, setNeedsPhone] = useState(false);
 
@@ -29,6 +29,7 @@ export default function PrivateLayout({ children }: { children: React.ReactNode 
         return;
       }
 
+      // Rol por RPC (no depende de RLS de profiles)
       const { data: role, error } = await supabase.rpc("get_my_role");
       if (error) {
         console.error("get_my_role error:", error.message);
@@ -37,30 +38,64 @@ export default function PrivateLayout({ children }: { children: React.ReactNode 
         return;
       }
 
-      setUserRole(String(role || "cliente").toLowerCase());
+      // ✅ FIX CLAVE: "user" debe comportarse como "cliente"
+      const r = String(role || "cliente").toLowerCase();
+      setUserRole(r === "user" ? "cliente" : r);
+
       setChecking(false);
     }
 
     checkSession();
   }, [router, supabase]);
 
-  useEffect(() => setMenuOpen(false), [pathname]);
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [pathname]);
 
+  // ✅ Rutas permitidas por rol
   const allowedByRole = useMemo(() => {
     return {
       delivery: ["/delivery", "/perfil"],
-      cliente: ["/dashboard", "/carta", "/choperas", "/Beneficios", "/mis-pedidos", "/puntos", "/perfil"],
-      staff: ["/admin", "/admin/usuarios", "/admin/puntos", "/admin/pedidos", "/admin/sellos", "/admin/vouchers"],
-      adminPreview: ["/dashboard", "/carta", "/choperas", "/Beneficios", "/mis-pedidos", "/puntos", "/perfil", "/delivery"],
+
+      cliente: [
+        "/dashboard",
+        "/carta",
+        "/choperas",
+        "/Beneficios",
+        "/mis-pedidos",
+        "/puntos",
+        "/perfil",
+      ],
+
+      staff: [
+        "/admin",
+        "/admin/usuarios",
+        "/admin/puntos",
+        "/admin/pedidos",
+        "/admin/sellos",
+        "/admin/vouchers",
+      ],
+
+      adminPreview: [
+        "/dashboard",
+        "/carta",
+        "/choperas",
+        "/Beneficios",
+        "/mis-pedidos",
+        "/puntos",
+        "/perfil",
+        "/delivery",
+      ],
     } as const;
   }, []);
 
-  // Guard por rol (igual que antes)
+  // Guard por roles no-panel
   useEffect(() => {
     if (checking) return;
     if (!userRole) return;
 
     const isAdminPreview = userRole === "admin" && searchParams.get("preview") === "true";
+
     const isAdminPanel = userRole === "admin" && searchParams.get("preview") !== "true";
     const isStaffPanel = userRole === "staff";
     if (isAdminPanel || isStaffPanel) return;
@@ -68,13 +103,17 @@ export default function PrivateLayout({ children }: { children: React.ReactNode 
     const roleKey = isAdminPreview ? "adminPreview" : (userRole as "delivery" | "cliente");
     const allowed = (allowedByRole as any)[roleKey] ?? allowedByRole.cliente;
 
-    const isAllowed = allowed.some((base: string) => pathname === base || pathname.startsWith(base + "/"));
+    const isAllowed = allowed.some(
+      (base: string) => pathname === base || pathname.startsWith(base + "/")
+    );
+
     if (!isAllowed) {
-      router.replace(roleKey === "delivery" ? "/delivery" : "/dashboard");
+      const fallback = roleKey === "delivery" ? "/delivery" : "/dashboard";
+      router.replace(fallback);
     }
   }, [checking, userRole, pathname, searchParams, router, allowedByRole]);
 
-  // ✅ Gate TEL por RPC (NO depende de RLS)
+  // ✅ Gate TEL por RPC (no depende de RLS)
   useEffect(() => {
     async function runPhoneGate() {
       if (checking) return;
@@ -110,7 +149,7 @@ export default function PrivateLayout({ children }: { children: React.ReactNode 
 
       const { data: need, error } = await supabase.rpc("get_my_phone_required");
 
-      // ✅ Si hay error, BLOQUEAMOS igual (más seguro)
+      // Si hay error, por seguridad bloqueamos igual
       if (error) {
         console.warn("get_my_phone_required error:", error.message);
         router.replace("/perfil?required_phone=1");
@@ -130,7 +169,11 @@ export default function PrivateLayout({ children }: { children: React.ReactNode 
   }, [checking, userRole, pathname, searchParams, router, supabase]);
 
   if (checking || phoneGateChecking) {
-    return <div className="min-h-screen flex items-center justify-center bg-slate-100">Cargando...</div>;
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-100">
+        Cargando...
+      </div>
+    );
   }
 
   const isAdminPanel = userRole === "admin" && searchParams.get("preview") !== "true";
@@ -161,7 +204,10 @@ export default function PrivateLayout({ children }: { children: React.ReactNode 
       <div className="min-h-screen bg-slate-50 relative pb-20">
         {userRole === "admin" && searchParams.get("preview") === "true" && (
           <div className="fixed top-0 left-0 right-0 bg-amber-200 text-amber-900 text-[10px] text-center py-1 z-60 font-bold shadow-sm">
-            MODO VISTA PREVIA • <a href="/admin" className="underline">Volver al Panel</a>
+            MODO VISTA PREVIA •{" "}
+            <a href="/admin" className="underline">
+              Volver al Panel
+            </a>
           </div>
         )}
 
