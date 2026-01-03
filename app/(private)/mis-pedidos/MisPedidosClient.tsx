@@ -21,17 +21,11 @@ type Order = {
   estado: string | null;
   creado_en: string;
 
-  // ✅ denormalizado en orders (lo mejor para STAFF/CLIENTE)
   delivery_nombre?: string | null;
-
-  // fallback legacy
   repartidor_nombre?: string | null;
 };
 
-type DeliveryLocation = {
-  lat: number;
-  lng: number;
-};
+type DeliveryLocation = { lat: number; lng: number };
 
 type DeliveryLocationRow = {
   id?: number;
@@ -92,16 +86,14 @@ export default function MisPedidosClient() {
   const [activeDeliveryIds, setActiveDeliveryIds] = useState<number[]>([]);
   const [trackingByOrderId, setTrackingByOrderId] = useState<Record<number, DeliveryLocation | null>>({});
 
-  // ✅ order_id -> delivery_id
+  // order_id -> delivery_id
   const deliveryIdByOrderIdRef = useRef<Record<number, number>>({});
-  // ✅ delivery_id -> order_id
+  // delivery_id -> order_id
   const orderIdByDeliveryIdRef = useRef<Record<number, number>>({});
 
-  // Fallback ONLY si faltara delivery_nombre (por compatibilidad)
   const enrichWithDeliveryNameFallback = async (rows: any[]): Promise<Order[]> => {
     if (!rows?.length) return [];
     const needFallback = rows.some((o) => !o.delivery_nombre);
-
     if (!needFallback) return rows as Order[];
 
     const orderIds = rows.map((o) => o.id);
@@ -181,11 +173,9 @@ export default function MisPedidosClient() {
       return null;
     }
 
-    if (loc) return { lat: loc.lat, lng: loc.lng };
-    return null;
+    return loc ? { lat: loc.lat, lng: loc.lng } : null;
   };
 
-  // devuelve el mapa de ubicaciones por pedido "enviado"
   const refreshActiveDelivery = async (uid: string): Promise<Record<number, DeliveryLocation | null>> => {
     const { data: currentOrders, error: oErr } = await supabase
       .from("orders")
@@ -204,7 +194,7 @@ export default function MisPedidosClient() {
       return {};
     }
 
-    const orderIds = currentOrders.map((order) => order.id);
+    const orderIds = currentOrders.map((o) => o.id);
 
     const { data: deliveryRows, error: dErr } = await supabase
       .from("deliveries")
@@ -221,10 +211,8 @@ export default function MisPedidosClient() {
       if (!row?.id || !row?.order_id) return;
       const deliveryId = Number(row.id);
       const orderId = Number(row.order_id);
-
       nextDeliveryIdByOrderId[orderId] = deliveryId;
       nextOrderIdByDeliveryId[deliveryId] = orderId;
-
       deliveryIds.push(deliveryId);
     });
 
@@ -234,16 +222,13 @@ export default function MisPedidosClient() {
 
     if (!deliveryIds.length) {
       setTrackingByOrderId((prev) => {
-        const nextTracking: Record<number, DeliveryLocation | null> = {};
-        orderIds.forEach((orderId) => {
-          nextTracking[orderId] = prev[orderId] ?? null;
-        });
-        return nextTracking;
+        const next: Record<number, DeliveryLocation | null> = {};
+        orderIds.forEach((orderId) => (next[orderId] = prev[orderId] ?? null));
+        return next;
       });
       return {};
     }
 
-    // Pre-cargar última posición (para que el mapa aparezca al abrir)
     const { data: locations, error: lErr } = await supabase
       .from("delivery_locations")
       .select("delivery_id, lat, lng, id")
@@ -260,8 +245,8 @@ export default function MisPedidosClient() {
 
     const nextTrackingByOrderId: Record<number, DeliveryLocation | null> = {};
     orderIds.forEach((orderId) => {
-      const deliveryId = nextDeliveryIdByOrderId[orderId];
-      nextTrackingByOrderId[orderId] = deliveryId ? latestByDeliveryId[deliveryId] ?? null : null;
+      const did = nextDeliveryIdByOrderId[orderId];
+      nextTrackingByOrderId[orderId] = did ? latestByDeliveryId[did] ?? null : null;
     });
 
     setTrackingByOrderId(nextTrackingByOrderId);
@@ -271,12 +256,10 @@ export default function MisPedidosClient() {
   const refreshAll = async () => {
     const uid = userIdRef.current;
     if (!uid) return;
-
     await loadOrders(uid);
     await refreshActiveDelivery(uid);
   };
 
-  // INIT
   useEffect(() => {
     const init = async () => {
       const { data } = await supabase.auth.getUser();
@@ -301,7 +284,6 @@ export default function MisPedidosClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // REALTIME: orders (filtrado por user_id) + deliveries
   useEffect(() => {
     if (!userId) return;
 
@@ -321,7 +303,7 @@ export default function MisPedidosClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
-  // ✅ REALTIME tracking: usar payload del INSERT (sin fetch extra)
+  // ✅ REALTIME: usa payload.new
   useEffect(() => {
     if (!activeDeliveryIds.length) return;
 
@@ -333,40 +315,70 @@ export default function MisPedidosClient() {
           { event: "INSERT", schema: "public", table: "delivery_locations", filter: `delivery_id=eq.${deliveryId}` },
           async (payload) => {
             const row = (payload?.new ?? null) as DeliveryLocationRow | null;
+            if (!row) return;
 
-            // Si por alguna razón no vino payload, fallback al select
-            const effectiveDeliveryId = row?.delivery_id ? Number(row.delivery_id) : Number(deliveryId);
+            const did = Number(row.delivery_id);
+            const latest: DeliveryLocation = { lat: Number(row.lat), lng: Number(row.lng) };
 
-            let latest: DeliveryLocation | null = null;
-            if (row?.lat != null && row?.lng != null) {
-              latest = { lat: Number(row.lat), lng: Number(row.lng) };
-            } else {
-              latest = await fetchLastLocation(effectiveDeliveryId);
-            }
-
-            // Map delivery_id -> order_id (con fallback seguro)
-            let orderId = orderIdByDeliveryIdRef.current[effectiveDeliveryId];
-
-            // fallback: buscar en order->delivery si todavía no estaba el reverse map cargado
+            let orderId = orderIdByDeliveryIdRef.current[did];
             if (!orderId) {
               const map = deliveryIdByOrderIdRef.current;
-              const found = Object.keys(map).find((k) => map[Number(k)] === effectiveDeliveryId);
+              const found = Object.keys(map).find((k) => map[Number(k)] === did);
               orderId = found ? Number(found) : 0;
             }
-
             if (!orderId) return;
 
-            setTrackingByOrderId((prev) => ({
-              ...prev,
-              [orderId]: latest,
-            }));
+            setTrackingByOrderId((prev) => ({ ...prev, [orderId]: latest }));
           }
         )
         .subscribe()
     );
 
     return () => {
-      channels.forEach((chLoc) => supabase.removeChannel(chLoc));
+      channels.forEach((c) => supabase.removeChannel(c));
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeDeliveryIds.join(",")]);
+
+  // ✅ FALLBACK “PedidosYa”: polling suave cada 4s SOLO si hay deliveries activos
+  useEffect(() => {
+    if (!activeDeliveryIds.length) return;
+
+    let alive = true;
+
+    const tick = async () => {
+      if (!alive) return;
+
+      const dids = [...activeDeliveryIds];
+      for (const did of dids) {
+        const latest = await fetchLastLocation(did);
+        if (!latest) continue;
+
+        let orderId = orderIdByDeliveryIdRef.current[did];
+        if (!orderId) {
+          const map = deliveryIdByOrderIdRef.current;
+          const found = Object.keys(map).find((k) => map[Number(k)] === did);
+          orderId = found ? Number(found) : 0;
+        }
+        if (!orderId) continue;
+
+        setTrackingByOrderId((prev) => {
+          const prevLoc = prev[orderId];
+          // evita re-render si no cambió
+          if (prevLoc && prevLoc.lat === latest.lat && prevLoc.lng === latest.lng) return prev;
+          return { ...prev, [orderId]: latest };
+        });
+      }
+    };
+
+    // primera corrida rápida
+    tick();
+
+    const iv = window.setInterval(tick, 4000);
+
+    return () => {
+      alive = false;
+      window.clearInterval(iv);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeDeliveryIds.join(",")]);
@@ -397,11 +409,7 @@ export default function MisPedidosClient() {
                 <p className="text-xs text-slate-400">{new Date(o.creado_en).toLocaleDateString("es-AR")}</p>
               </div>
 
-              <span
-                className={`px-3 py-1 rounded-full text-xs font-extrabold border uppercase tracking-wide ${estadoBadgeClass(
-                  o.estado
-                )}`}
-              >
+              <span className={`px-3 py-1 rounded-full text-xs font-extrabold border uppercase tracking-wide ${estadoBadgeClass(o.estado)}`}>
                 {o.estado}
               </span>
             </div>
@@ -410,7 +418,6 @@ export default function MisPedidosClient() {
               {o.cliente_nombre && <p className="font-semibold text-slate-700">👤 {o.cliente_nombre}</p>}
               <p>📍 {o.direccion_entrega}</p>
               <p className="font-bold text-emerald-600">💰 Total: ${o.monto}</p>
-
               {deliveryName && <p className="font-semibold text-slate-700">🛵 Delivery: {deliveryName}</p>}
             </div>
 
