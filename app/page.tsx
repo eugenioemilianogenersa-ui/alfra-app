@@ -6,6 +6,9 @@ import Image from "next/image";
 import { motion } from "framer-motion";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 
+// AQUI DEFINES TU VERSION MANUALMENTE PARA MOSTRARLA
+const APP_VERSION = "V 1.0.0"; 
+
 export default function HomePage() {
   const router = useRouter();
   const supabase = createClientComponentClient();
@@ -27,11 +30,9 @@ export default function HomePage() {
   }, [router, supabase]);
 
   return (
-    // CAMBIO 1: Fondo Slate-950 (Gris azulado muy oscuro, más moderno que el negro)
     <div className="relative min-h-screen flex flex-col items-center justify-center bg-slate-950 overflow-hidden px-4">
       
-      {/* CAMBIO 2: EFECTO GLOW (Luz ambiental) */}
-      {/* Esto crea una "mancha" de luz verde esmeralda suave detrás del logo */}
+      {/* GLOW DE FONDO */}
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-emerald-600/20 rounded-full blur-[120px] pointer-events-none" />
 
       <motion.div
@@ -43,7 +44,7 @@ export default function HomePage() {
         }}
         className="relative z-10 flex flex-col items-center"
       >
-        {/* Logo */}
+        {/* LOGO */}
         <div className="relative w-40 h-40 mb-6 md:w-48 md:h-48">
           <Image
             src="/logo-blanco.png"
@@ -54,7 +55,7 @@ export default function HomePage() {
           />
         </div>
 
-        {/* Texto con estilo más minimalista/tech */}
+        {/* TEXTOS */}
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -67,17 +68,28 @@ export default function HomePage() {
           <span className="text-xs md:text-sm font-light tracking-[0.4em] text-emerald-400/80 uppercase">
             Cerveza Artesanal
           </span>
+          
+          {/* NUEVO: VERSION DE LA APP */}
+          {/* Aparece suavemente un poco después */}
+          <motion.span 
+             initial={{ opacity: 0 }}
+             animate={{ opacity: 1 }}
+             transition={{ delay: 1.2, duration: 1 }}
+             className="mt-4 text-[10px] text-slate-600 tracking-widest font-mono"
+          >
+            {APP_VERSION}
+          </motion.span>
+
         </motion.div>
       </motion.div>
 
-      {/* Spinner de carga ultra fino y moderno */}
+      {/* SPINNER */}
       <motion.div 
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 1 }}
         className="absolute bottom-12 z-10"
       >
-        {/* Un spinner más sutil en gris y blanco */}
         <div className="w-5 h-5 border-2 border-slate-700 border-t-emerald-400 rounded-full animate-spin"></div>
       </motion.div>
 
