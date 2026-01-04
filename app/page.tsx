@@ -7,7 +7,7 @@ import { motion } from "framer-motion";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 
 // AQUI DEFINES TU VERSION MANUALMENTE PARA MOSTRARLA
-const APP_VERSION = "V 1.0.0"; 
+const APP_VERSION = `V ${process.env.NEXT_PUBLIC_APP_VERSION}`; 
 
 export default function HomePage() {
   const router = useRouter();
