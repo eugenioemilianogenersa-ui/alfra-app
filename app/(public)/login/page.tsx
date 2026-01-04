@@ -59,94 +59,110 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-linear-to-br from-black via-green-950 to-black px-4">
-      <div className="bg-white/95 shadow-lg rounded-2xl w-full max-w-md px-10 py-10 space-y-6">
+    <div className="relative min-h-screen flex items-center justify-center bg-slate-950 px-4 overflow-hidden">
+      
+      {/* 1. EFECTO GLOW DE FONDO (Igual que Splash Screen) */}
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-emerald-600/15 rounded-full blur-[120px] pointer-events-none" />
 
-        {/* LOGO */}
-        <div className="flex flex-col items-center gap-2">
-          <Image
-            src="/logo-alfra.png"
-            alt="AlFra"
-            width={100}
-            height={100}
-            priority
-          />
-          <h2 className="text-center text-lg font-semibold">AlFra</h2>
+      {/* 2. TARJETA GLASSMORPHISM (Cristal Oscuro) */}
+      <div className="relative z-10 w-full max-w-md bg-slate-900/60 backdrop-blur-xl border border-slate-800/50 shadow-2xl rounded-2xl p-8 space-y-8">
+
+        {/* LOGO (Usamos la versión blanca para contraste) */}
+        <div className="flex flex-col items-center gap-3">
+          <div className="relative w-24 h-24">
+            <Image
+              src="/logo-blanco.png" // CAMBIO: Usamos el logo blanco
+              alt="AlFra"
+              fill
+              className="object-contain drop-shadow-lg"
+              priority
+            />
+          </div>
+          <h2 className="text-xl font-bold text-white tracking-widest uppercase">AlFra App</h2>
         </div>
 
         {/* TITULO */}
-        <div className="text-center">
-          <h1 className="text-xl font-semibold mb-1">Ingresar a AlFra</h1>
-          <p className="text-sm text-gray-500">
-            Entrá con tu correo y contraseña o Google.
+        <div className="text-center space-y-1">
+          <h1 className="text-lg font-medium text-slate-200">Bienvenido de nuevo</h1>
+          <p className="text-sm text-slate-400">
+            Ingresa tus credenciales para continuar
           </p>
         </div>
 
-        {/* GOOGLE */}
+        {/* BOTON GOOGLE DARK */}
         <button
           onClick={handleGoogleLogin}
-          className="w-full flex items-center justify-center gap-3 border border-gray-300 rounded-md py-2 text-sm font-medium hover:bg-gray-50 transition"
+          className="w-full flex items-center justify-center gap-3 bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 rounded-lg py-2.5 text-sm font-medium transition duration-200"
         >
           <Image
             src="/google.svg"
             alt="Google"
-            width={18}
-            height={18}
+            width={20}
+            height={20}
+            className="opacity-90"
           />
           Continuar con Google
         </button>
 
         <div className="flex items-center gap-3">
-          <div className="flex-1 h-px bg-gray-200" />
-          <span className="text-xs text-gray-400">o</span>
-          <div className="flex-1 h-px bg-gray-200" />
+          <div className="flex-1 h-px bg-slate-800" />
+          <span className="text-xs text-slate-500 uppercase tracking-wider">o con email</span>
+          <div className="flex-1 h-px bg-slate-800" />
         </div>
 
-        {/* FORM */}
-        <form onSubmit={handleLogin} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium mb-1">Email</label>
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              className="w-full rounded-md border px-3 py-2 focus:ring-2 focus:ring-emerald-500"
-            />
-          </div>
+        {/* FORMULARIO */}
+        <form onSubmit={handleLogin} className="space-y-5">
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide">Email</label>
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                placeholder="nombre@ejemplo.com"
+                className="w-full bg-slate-950/50 text-white rounded-lg border border-slate-700 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition placeholder:text-slate-600"
+              />
+            </div>
 
-          <div>
-            <label className="block text-sm font-medium mb-1">Contraseña</label>
-            <input
-              type="password"
-              required
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              className="w-full rounded-md border px-3 py-2 focus:ring-2 focus:ring-emerald-500"
-            />
+            <div>
+              <div className="flex justify-between items-center mb-1.5">
+                <label className="block text-xs font-medium text-slate-400 uppercase tracking-wide">Contraseña</label>
+                <Link href="/recuperar" className="text-xs text-emerald-400 hover:text-emerald-300 transition">
+                  ¿Olvidaste tu clave?
+                </Link>
+              </div>
+              <input
+                type="password"
+                required
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                placeholder="••••••••"
+                className="w-full bg-slate-950/50 text-white rounded-lg border border-slate-700 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition placeholder:text-slate-600"
+              />
+            </div>
           </div>
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-[#7b634f] text-white py-2 rounded-md font-semibold hover:bg-[#6d5745] disabled:opacity-60"
+            className="w-full bg-[#7b634f] hover:bg-[#8c735d] text-white py-3 rounded-lg font-bold tracking-wide shadow-lg hover:shadow-emerald-900/20 transition disabled:opacity-60 disabled:cursor-not-allowed transform active:scale-[0.98]"
           >
-            {loading ? "Ingresando..." : "Ingresar"}
+            {loading ? "INGRESANDO..." : "INGRESAR"}
           </button>
 
           {errorMsg && (
-            <p className="text-sm text-red-600 text-center">{errorMsg}</p>
+            <div className="p-3 rounded-lg bg-red-900/20 border border-red-900/50">
+               <p className="text-sm text-red-400 text-center">{errorMsg}</p>
+            </div>
           )}
         </form>
 
         {/* LINKS */}
-        <div className="flex flex-col items-center gap-2 pt-2">
-          <Link href="/recuperar" className="text-sm text-emerald-700 hover:underline">
-            Recuperar contraseña
-          </Link>
-          <p className="text-sm text-gray-500">
+        <div className="text-center pt-2">
+          <p className="text-sm text-slate-500">
             ¿No tenés cuenta?{" "}
-            <Link href="/signup" className="font-semibold text-emerald-700 hover:underline">
+            <Link href="/signup" className="font-semibold text-emerald-400 hover:text-emerald-300 transition">
               Crear cuenta
             </Link>
           </p>
