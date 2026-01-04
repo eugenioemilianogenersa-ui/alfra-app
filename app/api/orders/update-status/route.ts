@@ -151,10 +151,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Forbidden (rol)" }, { status: 403 });
     }
 
-    // STAFF: NO puede cancelar
-    if (isStaff && nextEstado === "cancelado") {
-      return NextResponse.json({ error: "Forbidden (STAFF no cancela)" }, { status: 403 });
-    }
+    // ✅ STAFF PUEDE CANCELAR (caja). DELIVERY NO.
+    // (antes estaba bloqueado; se eliminó para soportar operación real)
 
     // Estado actual + data necesaria para sellos (service role)
     const { data: order, error: orderErr } = await supabaseAdmin
