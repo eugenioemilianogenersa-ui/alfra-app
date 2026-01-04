@@ -33,7 +33,7 @@ export default function HomePage() {
 
   return (
     // Mantenemos tu fondo original con el gradiente
-    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-black via-green-950 to-black text-center text-white px-4 overflow-hidden">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-linear-to-br from-black via-green-950 to-black text-center text-white px-4 overflow-hidden">
       
       <motion.div
         initial={{ opacity: 0, scale: 0.5, y: 50 }} // Empieza pequeño e invisible
