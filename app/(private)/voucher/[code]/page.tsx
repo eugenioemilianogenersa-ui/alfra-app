@@ -1,8 +1,14 @@
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Voucher | AlFra" };
 
+import { Suspense } from "react";
 import VoucherClient from "./voucherClient";
 
-export default function VoucherPage({ params }: { params: { code: string } }) {
-  return <VoucherClient code={params.code} />;
+export default function Page({ params }: { params: { code: string } }) {
+  const code = decodeURIComponent(params.code || "");
+
+  return (
+    <Suspense fallback={<div className="p-6 text-center text-slate-500">Cargando voucher...</div>}>
+      <VoucherClient code={code} />
+    </Suspense>
+  );
 }
