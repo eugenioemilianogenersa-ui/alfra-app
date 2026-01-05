@@ -28,7 +28,7 @@ export default function Sidebar({
     { href: "/admin/puntos", label: "Gestión Puntos", icon: "💎" },
 
     // ✅ nuevos módulos
-    { href: "/admin/beneficios", label: "Beneficios", icon: "🏪" },
+    { href: "/admin/Beneficios", label: "Beneficios", icon: "🏪" },
     { href: "/admin/choperas", label: "Choperas", icon: "🍻" },
 
     { href: "/admin/sellos", label: "Gestión Sellos", icon: "🧷" },
