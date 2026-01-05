@@ -26,6 +26,11 @@ export default function Sidebar({
     { href: "/admin", label: "Métricas / Inicio", icon: "📊" },
     { href: "/admin/usuarios", label: "Gestión Usuarios", icon: "👥" },
     { href: "/admin/puntos", label: "Gestión Puntos", icon: "💎" },
+
+    // ✅ nuevos módulos
+    { href: "/admin/beneficios", label: "Beneficios", icon: "🏪" },
+    { href: "/admin/choperas", label: "Choperas", icon: "🍻" },
+
     { href: "/admin/sellos", label: "Gestión Sellos", icon: "🧷" },
     { href: "/admin/vouchers", label: "Vouchers (Canjes)", icon: "🎟️" },
     { href: "/admin/pedidos", label: "Gestión Pedidos", icon: "📦" },
@@ -34,7 +39,7 @@ export default function Sidebar({
     { href: "/admin/news", label: "Noticias", icon: "📰" },
   ];
 
-  // Links STAFF
+  // Links STAFF (no agrego Beneficios/Choperas por ahora)
   const staffLinks = [
     { href: "/admin/usuarios", label: "Gestión Usuarios", icon: "👥" },
     { href: "/admin/puntos", label: "Gestión Puntos", icon: "💎" },
@@ -54,7 +59,10 @@ export default function Sidebar({
   return (
     <>
       {open && (
-        <div onClick={onClose} className="fixed inset-0 bg-black/30 z-30 lg:hidden" />
+        <div
+          onClick={onClose}
+          className="fixed inset-0 bg-black/30 z-30 lg:hidden"
+        />
       )}
 
       <aside
@@ -74,7 +82,10 @@ export default function Sidebar({
             </p>
           </div>
 
-          <button onClick={onClose} className="ml-auto text-slate-400 hover:text-white lg:hidden">
+          <button
+            onClick={onClose}
+            className="ml-auto text-slate-400 hover:text-white lg:hidden"
+          >
             ✕
           </button>
         </div>
