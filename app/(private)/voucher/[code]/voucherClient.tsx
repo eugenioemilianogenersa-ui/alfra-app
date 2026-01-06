@@ -36,7 +36,7 @@ export default function VoucherClient() {
   const params = useParams();
 
   const code = useMemo(() => {
-    const raw = params?.code;
+    const raw = (params as any)?.code;
     const v = Array.isArray(raw) ? raw[0] : raw;
     try {
       return decodeURIComponent(String(v || "")).trim();
@@ -57,6 +57,11 @@ export default function VoucherClient() {
     const r = (myRole || "").toLowerCase();
     return r === "admin" || r === "staff";
   }, [myRole]);
+
+  const isRedeemed = useMemo(() => {
+    const s = String(row?.status || "").toLowerCase();
+    return s === "canjeado";
+  }, [row?.status]);
 
   useEffect(() => {
     async function load() {
@@ -82,7 +87,6 @@ export default function VoucherClient() {
         return;
       }
 
-      // rol
       try {
         const { data: roleData } = await supabase.rpc("get_my_role");
         if (typeof roleData === "string" && roleData) setMyRole(roleData);
@@ -158,7 +162,7 @@ export default function VoucherClient() {
         return;
       }
 
-      // 3) Fallback sellos
+      // 3) Fallback sellos (sin tocar)
       const { data: sv, error: svErr } = await supabase
         .from("stamps_vouchers")
         .select("code,status,issued_at,redeemed_at,reward_name,expires_at")
@@ -203,6 +207,7 @@ export default function VoucherClient() {
   async function redeemBeneficioVoucher(voucherCode: string) {
     setRedeemMsg(null);
     setRedeeming(true);
+
     try {
       const { data: sess } = await supabase.auth.getSession();
       const token = sess.session?.access_token;
@@ -231,7 +236,13 @@ export default function VoucherClient() {
 
       setRedeemMsg("Voucher marcado como CANJEADO.");
       setRow((prev) =>
-        prev ? { ...prev, status: "canjeado", used_at: json?.voucher?.used_at || new Date().toISOString() } : prev
+        prev
+          ? {
+              ...prev,
+              status: "canjeado",
+              used_at: json?.voucher?.used_at || new Date().toISOString(),
+            }
+          : prev
       );
     } finally {
       setRedeeming(false);
@@ -240,8 +251,9 @@ export default function VoucherClient() {
 
   const whatsappLink = useMemo(() => {
     if (!row) return null;
-    const msgLines: string[] = [];
+    if (row.kind === "beneficios" && isRedeemed) return null; // ✅ no compartir un voucher ya canjeado
 
+    const msgLines: string[] = [];
     if (row.kind === "beneficios") {
       msgLines.push("ALFRA - Voucher Beneficios (Puntos)");
       msgLines.push(`Codigo: ${row.voucher_code}`);
@@ -256,10 +268,15 @@ export default function VoucherClient() {
     }
 
     return `https://wa.me/?text=${encodeURIComponent(msgLines.join("\n"))}`;
-  }, [row]);
+  }, [row, isRedeemed]);
 
   async function downloadBeneficioPdf(voucherCode: string) {
     setRedeemMsg(null);
+    if (isRedeemed) {
+      setRedeemMsg("Este voucher ya fue canjeado. No tiene validez.");
+      return;
+    }
+
     const { data: sess } = await supabase.auth.getSession();
     const token = sess.session?.access_token;
     if (!token) {
@@ -302,14 +319,21 @@ export default function VoucherClient() {
 
   if (!row) return null;
 
+  // BENEFICIOS
   if (row.kind === "beneficios") {
-    const isRedeemed = (row.status || "").toLowerCase() === "canjeado";
     return (
       <main className="max-w-3xl mx-auto p-6 space-y-4">
         <header className="text-center space-y-1">
           <h1 className="text-2xl font-bold">Voucher de Beneficio</h1>
           <p className="text-sm text-slate-600">Presentalo en AlFra para canjear.</p>
         </header>
+
+        {isRedeemed && (
+          <div className="border border-red-300 bg-red-50 text-red-800 rounded-xl p-3 text-sm font-semibold text-center">
+            CANJEADO — Este voucher ya no tiene validez.
+            {row.used_at ? <div className="text-[11px] font-normal mt-1">Usado: {formatDateTime(row.used_at)}</div> : null}
+          </div>
+        )}
 
         {redeemMsg && (
           <div className="border rounded-lg bg-amber-50 border-amber-200 p-3 text-sm text-amber-900">{redeemMsg}</div>
@@ -327,13 +351,19 @@ export default function VoucherClient() {
 
           <div className="flex flex-wrap gap-2">
             <button
+              disabled={isRedeemed}
               onClick={() => downloadBeneficioPdf(row.voucher_code)}
-              className="rounded-lg px-3 py-2 text-sm font-semibold border bg-slate-900 text-white hover:bg-slate-800"
+              className={[
+                "rounded-lg px-3 py-2 text-sm font-semibold border",
+                isRedeemed
+                  ? "bg-slate-100 text-slate-500 border-slate-200"
+                  : "bg-slate-900 text-white hover:bg-slate-800",
+              ].join(" ")}
             >
               Descargar PDF
             </button>
 
-            {whatsappLink && (
+            {whatsappLink ? (
               <a
                 href={whatsappLink}
                 target="_blank"
@@ -342,6 +372,13 @@ export default function VoucherClient() {
               >
                 Compartir por WhatsApp
               </a>
+            ) : (
+              <button
+                disabled
+                className="rounded-lg px-3 py-2 text-sm font-semibold border bg-slate-100 text-slate-500 border-slate-200"
+              >
+                Compartir por WhatsApp
+              </button>
             )}
 
             {isPrivileged && (
@@ -350,7 +387,9 @@ export default function VoucherClient() {
                 onClick={() => redeemBeneficioVoucher(row.voucher_code)}
                 className={[
                   "rounded-lg px-3 py-2 text-sm font-semibold border",
-                  isRedeemed ? "bg-slate-100 text-slate-500 border-slate-200" : "bg-amber-600 text-white border-amber-700 hover:bg-amber-700",
+                  isRedeemed
+                    ? "bg-slate-100 text-slate-500 border-slate-200"
+                    : "bg-amber-600 text-white border-amber-700 hover:bg-amber-700",
                   redeeming ? "opacity-70" : "",
                 ].join(" ")}
               >
@@ -361,7 +400,11 @@ export default function VoucherClient() {
 
           {row.beneficio_image_url ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={row.beneficio_image_url} alt={row.beneficio_title ?? "Beneficio"} className="w-full h-48 object-cover rounded-lg border" />
+            <img
+              src={row.beneficio_image_url}
+              alt={row.beneficio_title ?? "Beneficio"}
+              className="w-full h-48 object-cover rounded-lg border"
+            />
           ) : null}
 
           <div className="grid gap-3 md:grid-cols-2">

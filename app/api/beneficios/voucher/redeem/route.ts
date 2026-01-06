@@ -16,10 +16,17 @@ export async function POST(req: Request) {
     if (!token) return NextResponse.json({ error: "missing_auth" }, { status: 401 });
 
     const { data: userRes, error: userErr } = await supabaseAdmin.auth.getUser(token);
-    if (userErr || !userRes?.user) return NextResponse.json({ error: "invalid_auth" }, { status: 401 });
+    if (userErr || !userRes?.user) {
+      return NextResponse.json({ error: "invalid_auth" }, { status: 401 });
+    }
 
     const uid = userRes.user.id;
 
+    const body = await req.json().catch(() => ({}));
+    const code = String(body?.code || "").trim();
+    if (!code) return NextResponse.json({ error: "missing_code" }, { status: 400 });
+
+    // rol
     const { data: prof, error: pErr } = await supabaseAdmin
       .from("profiles")
       .select("role")
@@ -28,45 +35,49 @@ export async function POST(req: Request) {
 
     if (pErr || !prof) return NextResponse.json({ error: "profile_not_found" }, { status: 403 });
 
-    const role = String(prof.role || "").toLowerCase();
-    if (role !== "admin" && role !== "staff") {
-      return NextResponse.json({ error: "forbidden" }, { status: 403 });
-    }
+    const role = String(prof.role || "cliente").toLowerCase();
+    const isPrivileged = role === "admin" || role === "staff";
+    if (!isPrivileged) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
-    const body = await req.json().catch(() => null);
-    const code = String(body?.code || "").trim();
-    if (!code) return NextResponse.json({ error: "missing_code" }, { status: 400 });
-
-    // Marcar canjeado solo si está emitido
-    const { data: updated, error: uErr } = await supabaseAdmin
+    // Buscar voucher
+    const { data: bv, error: vErr } = await supabaseAdmin
       .from("beneficios_vouchers")
-      .update({
-        status: "canjeado",
-        used_at: new Date().toISOString(),
-      })
+      .select("id, voucher_code, status, used_at")
       .eq("voucher_code", code)
-      .eq("status", "emitido")
-      .select("voucher_code,status,used_at")
       .maybeSingle();
 
-    if (uErr) {
-      return NextResponse.json({ error: "db_error", detail: uErr.message }, { status: 500 });
+    if (vErr) return NextResponse.json({ error: "db_error", detail: vErr.message }, { status: 500 });
+    if (!bv) return NextResponse.json({ error: "not_found" }, { status: 404 });
+
+    const status = String(bv.status || "").toLowerCase();
+
+    // Idempotente / antifraude: solo canjea si está emitido
+    if (status !== "emitido") {
+      return NextResponse.json(
+        { error: "not_redeemable", status: bv.status, used_at: bv.used_at },
+        { status: 409 }
+      );
     }
 
-    if (!updated) {
-      // puede ser: no existe, o ya estaba canjeado, o no estaba emitido
-      const { data: exists } = await supabaseAdmin
-        .from("beneficios_vouchers")
-        .select("voucher_code,status,used_at")
-        .eq("voucher_code", code)
-        .maybeSingle();
+    const nowIso = new Date().toISOString();
 
-      if (!exists) return NextResponse.json({ error: "not_found" }, { status: 404 });
-      return NextResponse.json({ error: "not_redeemable", current: exists }, { status: 409 });
+    const { data: updated, error: upErr } = await supabaseAdmin
+      .from("beneficios_vouchers")
+      .update({ status: "canjeado", used_at: nowIso })
+      .eq("id", bv.id)
+      .eq("status", "emitido") // anti race-condition
+      .select("voucher_code, status, used_at")
+      .single();
+
+    if (upErr) {
+      return NextResponse.json({ error: "db_error", detail: upErr.message }, { status: 500 });
     }
 
-    return NextResponse.json({ ok: true, voucher: updated });
+    return NextResponse.json({ ok: true, voucher: updated }, { status: 200 });
   } catch (e: any) {
-    return NextResponse.json({ error: "server_error", detail: e?.message || String(e) }, { status: 500 });
+    return NextResponse.json(
+      { error: "server_error", detail: e?.message || String(e) },
+      { status: 500 }
+    );
   }
 }
