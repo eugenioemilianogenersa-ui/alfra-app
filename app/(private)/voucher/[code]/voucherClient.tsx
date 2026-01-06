@@ -54,14 +54,19 @@ export default function VoucherClient({ code }: { code: string }) {
       setErrorMsg(null);
       setRow(null);
 
-      const { data: sess } = await supabase.auth.getSession();
+      const { data: sess, error: sessErr } = await supabase.auth.getSession();
+      if (sessErr) {
+        setErrorMsg("Error de sesión: " + sessErr.message);
+        setLoading(false);
+        return;
+      }
       if (!sess.session) {
         setErrorMsg("No hay sesión. Iniciá sesión para ver el voucher.");
         setLoading(false);
         return;
       }
 
-      // rol (RPC existente)
+      // rol
       try {
         const { data: roleData } = await supabase.rpc("get_my_role");
         if (typeof roleData === "string" && roleData) setMyRole(roleData);
@@ -69,9 +74,8 @@ export default function VoucherClient({ code }: { code: string }) {
         // no bloquea
       }
 
-      const { data, error } = await supabase.rpc("get_voucher_by_code", {
-        p_code: code,
-      });
+      // 1) Intento principal: RPC unificada
+      const { data, error } = await supabase.rpc("get_voucher_by_code", { p_code: code });
 
       if (error) {
         const msg = error.message || "Error al buscar voucher.";
@@ -81,13 +85,106 @@ export default function VoucherClient({ code }: { code: string }) {
       }
 
       const one = Array.isArray(data) ? data?.[0] : data;
-      if (!one) {
-        setErrorMsg("Voucher no encontrado (o no tenés acceso).");
+      if (one) {
+        setRow(one as VoucherRow);
         setLoading(false);
         return;
       }
 
-      setRow(one as VoucherRow);
+      // 2) Fallback BENEFICIOS: leer directo (RLS debería permitir solo el propio)
+      const { data: bv, error: bvErr } = await supabase
+        .from("beneficios_vouchers")
+        .select(
+          `
+          voucher_code,
+          status,
+          created_at,
+          used_at,
+          points_spent,
+          cash_extra,
+          beneficios:beneficio_id (
+            title,
+            summary,
+            category,
+            content,
+            image_url
+          )
+        `
+        )
+        .eq("voucher_code", code)
+        .maybeSingle();
+
+      if (bvErr) {
+        setErrorMsg(`Error al buscar voucher (beneficios): ${bvErr.code} - ${bvErr.message}`);
+        setLoading(false);
+        return;
+      }
+
+      if (bv) {
+        const b = (bv as any).beneficios || {};
+        const mapped: VoucherRow = {
+          kind: "beneficios",
+          voucher_code: (bv as any).voucher_code,
+          status: (bv as any).status ?? null,
+          created_at: (bv as any).created_at ?? null,
+          used_at: (bv as any).used_at ?? null,
+
+          points_spent: (bv as any).points_spent ?? null,
+          cash_extra: (bv as any).cash_extra ?? null,
+          beneficio_title: b.title ?? null,
+          beneficio_summary: b.summary ?? null,
+          beneficio_category: b.category ?? null,
+          beneficio_content: b.content ?? null,
+          beneficio_image_url: b.image_url ?? null,
+
+          reward_name: null,
+          expires_at: null,
+        };
+
+        setRow(mapped);
+        setLoading(false);
+        return;
+      }
+
+      // 3) Fallback SELLOS: leer directo
+      const { data: sv, error: svErr } = await supabase
+        .from("stamps_vouchers")
+        .select("code,status,issued_at,redeemed_at,reward_name,expires_at")
+        .eq("code", code)
+        .maybeSingle();
+
+      if (svErr) {
+        setErrorMsg(`Error al buscar voucher (sellos): ${svErr.code} - ${svErr.message}`);
+        setLoading(false);
+        return;
+      }
+
+      if (sv) {
+        const mapped: VoucherRow = {
+          kind: "sellos",
+          voucher_code: (sv as any).code,
+          status: (sv as any).status ?? null,
+          created_at: (sv as any).issued_at ?? null,
+          used_at: (sv as any).redeemed_at ?? null,
+
+          points_spent: null,
+          cash_extra: null,
+          beneficio_title: null,
+          beneficio_summary: null,
+          beneficio_category: null,
+          beneficio_content: null,
+          beneficio_image_url: null,
+
+          reward_name: (sv as any).reward_name ?? null,
+          expires_at: (sv as any).expires_at ?? null,
+        };
+
+        setRow(mapped);
+        setLoading(false);
+        return;
+      }
+
+      setErrorMsg("Voucher no encontrado (o no tenés acceso).");
       setLoading(false);
     }
 
@@ -145,7 +242,7 @@ export default function VoucherClient({ code }: { code: string }) {
 
   const whatsappLink = useMemo(() => {
     if (!row) return null;
-    // Mensaje simple (sin depender de URL pública)
+
     const msgLines: string[] = [];
     if (row.kind === "beneficios") {
       msgLines.push("ALFRA - Voucher Beneficios (Puntos)");
@@ -159,15 +256,9 @@ export default function VoucherClient({ code }: { code: string }) {
       if (row.reward_name) msgLines.push(`Premio: ${row.reward_name}`);
       msgLines.push(`Estado: ${row.status ?? "—"}`);
     }
+
     const text = encodeURIComponent(msgLines.join("\n"));
     return `https://wa.me/?text=${text}`;
-  }, [row]);
-
-  const pdfHref = useMemo(() => {
-    if (!row) return null;
-    if (row.kind !== "beneficios") return null;
-    // Nota: el endpoint requiere Authorization, por eso lo abrimos vía fetch+blob abajo (no link directo).
-    return null;
   }, [row]);
 
   async function downloadBeneficioPdf(voucherCode: string) {
@@ -325,7 +416,7 @@ export default function VoucherClient({ code }: { code: string }) {
     );
   }
 
-  // SELLOS (no se toca)
+  // SELLOS (sin tocar)
   return (
     <main className="max-w-3xl mx-auto p-6 space-y-4">
       <header className="text-center space-y-1">
