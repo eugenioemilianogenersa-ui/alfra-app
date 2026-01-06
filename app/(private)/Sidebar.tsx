@@ -21,14 +21,12 @@ export default function Sidebar({
   const isAdmin = ROLE === "admin";
   const isStaff = ROLE === "staff";
 
-  // Links completos Admin
   const adminLinks = [
     { href: "/admin", label: "Métricas / Inicio", icon: "📊" },
     { href: "/admin/usuarios", label: "Gestión Usuarios", icon: "👥" },
     { href: "/admin/puntos", label: "Gestión Puntos", icon: "💎" },
 
-    // ✅ nuevos módulos
-    { href: "/admin/Beneficios", label: "Beneficios", icon: "🏪" },
+    { href: "/admin/beneficios", label: "Beneficios", icon: "🏪" },
     { href: "/admin/choperas", label: "Choperas", icon: "🍻" },
 
     { href: "/admin/sellos", label: "Gestión Sellos", icon: "🧷" },
@@ -39,7 +37,6 @@ export default function Sidebar({
     { href: "/admin/news", label: "Noticias", icon: "📰" },
   ];
 
-  // Links STAFF (no agrego Beneficios/Choperas por ahora)
   const staffLinks = [
     { href: "/admin/usuarios", label: "Gestión Usuarios", icon: "👥" },
     { href: "/admin/puntos", label: "Gestión Puntos", icon: "💎" },
@@ -58,12 +55,7 @@ export default function Sidebar({
 
   return (
     <>
-      {open && (
-        <div
-          onClick={onClose}
-          className="fixed inset-0 bg-black/30 z-30 lg:hidden"
-        />
-      )}
+      {open && <div onClick={onClose} className="fixed inset-0 bg-black/30 z-30 lg:hidden" />}
 
       <aside
         className={`fixed z-40 top-0 left-0 h-full w-64 bg-slate-900 text-white border-r border-slate-800 flex flex-col transition-transform duration-300 shadow-xl
@@ -77,15 +69,10 @@ export default function Sidebar({
             <p className="text-sm font-bold tracking-wide">
               {isAdmin ? "ALFRA ADMIN" : isStaff ? "ALFRA STAFF" : "ALFRA"}
             </p>
-            <p className="text-[10px] text-slate-400 uppercase tracking-widest">
-              Panel de Control
-            </p>
+            <p className="text-[10px] text-slate-400 uppercase tracking-widest">Panel de Control</p>
           </div>
 
-          <button
-            onClick={onClose}
-            className="ml-auto text-slate-400 hover:text-white lg:hidden"
-          >
+          <button onClick={onClose} className="ml-auto text-slate-400 hover:text-white lg:hidden">
             ✕
           </button>
         </div>
@@ -96,7 +83,7 @@ export default function Sidebar({
           </p>
 
           {links.map((link) => {
-            const active = pathname === link.href;
+            const active = pathname === link.href || pathname.startsWith(link.href + "/");
             return (
               <Link
                 key={link.href}
