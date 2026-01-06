@@ -74,10 +74,11 @@ export default function BeneficiosClient() {
 
       setPoints(wallet?.points ?? 0);
 
-      // 2) beneficios publicados
+      // 2) beneficios publicados (y activos, si querés)
       const { data: bData, error: bErr } = await supabase
         .from("beneficios")
         .select("*")
+        .eq("is_published", true)
         .order("created_at", { ascending: false });
 
       if (bErr) {
@@ -109,14 +110,15 @@ export default function BeneficiosClient() {
           setRedeemMsg("No te alcanzan los puntos para este beneficio.");
         } else if (msg.includes("beneficio_inactive")) {
           setRedeemMsg("Este beneficio está inactivo por ahora.");
+        } else if (msg.includes("beneficio_not_published")) {
+          setRedeemMsg("Este beneficio no está publicado.");
         } else {
           setRedeemMsg("Error al canjear: " + msg);
         }
         return;
       }
 
-      // la RPC retorna table(voucher_code text) => array con 1 fila
-      const code = Array.isArray(data) ? data?.[0]?.voucher_code : data?.voucher_code;
+      const code = Array.isArray(data) ? data?.[0]?.voucher_code : (data as any)?.voucher_code;
       if (!code) {
         setRedeemMsg("Canje realizado, pero no se obtuvo el código del voucher.");
         return;
@@ -160,15 +162,11 @@ export default function BeneficiosClient() {
       {loading && <p className="text-sm text-slate-500 text-center">Cargando...</p>}
 
       {!loading && errorMsg && (
-        <div className="border border-red-400 bg-red-50 p-4 rounded text-sm">
-          {errorMsg}
-        </div>
+        <div className="border border-red-400 bg-red-50 p-4 rounded text-sm">{errorMsg}</div>
       )}
 
       {!loading && !errorMsg && beneficios.length === 0 && (
-        <p className="text-center text-slate-500 text-sm">
-          Todavía no hay beneficios disponibles.
-        </p>
+        <p className="text-center text-slate-500 text-sm">Todavía no hay beneficios disponibles.</p>
       )}
 
       {redeemMsg && (
@@ -179,7 +177,8 @@ export default function BeneficiosClient() {
 
       <section className="grid gap-4 md:grid-cols-2">
         {beneficios.map((b) => {
-          const canRedeem = b.is_active && points >= (b.points_cost ?? 0) && (b.points_cost ?? 0) > 0;
+          const canRedeem =
+            b.is_active && points >= (b.points_cost ?? 0) && (b.points_cost ?? 0) > 0;
           const needsCash = (b.cash_extra ?? 0) > 0;
 
           return (
@@ -239,9 +238,7 @@ export default function BeneficiosClient() {
                   </button>
 
                   {!b.is_active && (
-                    <p className="mt-2 text-xs text-slate-500">
-                      Beneficio temporalmente inactivo.
-                    </p>
+                    <p className="mt-2 text-xs text-slate-500">Beneficio temporalmente inactivo.</p>
                   )}
                 </div>
               </div>
