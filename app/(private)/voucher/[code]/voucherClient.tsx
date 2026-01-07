@@ -85,11 +85,24 @@ export default function VoucherClient() {
     return r === "admin" || r === "staff";
   }, [myRole]);
 
-  // ✅ FIX: soporta beneficios ("canjeado") y sellos ("REDEEMED")
   const isRedeemed = useMemo(() => {
     const s = String(row?.status || "").trim().toLowerCase();
     return s === "canjeado" || s === "redeemed";
   }, [row?.status]);
+
+  function closeModal() {
+    router.push("/dashboard");
+  }
+
+  // ✅ Cerrar con ESC
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") closeModal();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     async function load() {
@@ -416,20 +429,18 @@ export default function VoucherClient() {
       barcodeSvg = makeBarcodeSvg(row.voucher_code);
     } catch {}
 
-    const headerTitle = row.kind === "beneficios" ? "Voucher Beneficios" : "Voucher Sellos";
-
     const subtitle =
       row.kind === "beneficios" ? row.beneficio_title || "Beneficio AlFra" : row.reward_name || "Premio AlFra";
 
     const issued = row.created_at ? formatDateTime(row.created_at) : "—";
-    const expires = row.kind === "sellos" && row.expires_at ? formatDateTime(row.expires_at) : null;
+    const exp = row.kind === "sellos" && row.expires_at ? formatDateTime(row.expires_at) : null;
 
     const html = `<!doctype html>
 <html>
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>${headerTitle} - AlFra</title>
+<title>Voucher - AlFra</title>
 <style>
   body{font-family:Arial, sans-serif; padding:24px; background:#f8fafc;}
   .card{max-width:520px; margin:0 auto; border:1px solid #e2e8f0; border-radius:16px; overflow:hidden; background:white;}
@@ -469,14 +480,12 @@ export default function VoucherClient() {
           <div class="val">${issued}</div>
         </div>
         <div class="col">
-          <div class="lbl">${expires ? "Vence" : "Estado"}</div>
-          <div class="val ${expires ? "exp" : ""}">${expires ? expires : row.status ?? "—"}</div>
+          <div class="lbl">${exp ? "Vence" : "Estado"}</div>
+          <div class="val ${exp ? "exp" : ""}">${exp ? exp : row.status ?? "—"}</div>
         </div>
       </div>
 
-      <div class="note">
-        Mostralo en caja para canjear.
-      </div>
+      <div class="note">Mostralo en caja para canjear.</div>
     </div>
   </div>
 
@@ -496,183 +505,189 @@ export default function VoucherClient() {
     w.document.close();
   }
 
-  if (loading) {
-    return <main className="min-h-screen bg-slate-50 flex items-center justify-center p-6 text-slate-500">Cargando voucher...</main>;
-  }
-
-  if (errorMsg) {
-    return (
-      <main className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
-        <div className="w-full max-w-md border border-red-400 bg-red-50 p-4 rounded-xl text-sm">{errorMsg}</div>
-      </main>
-    );
-  }
-
-  if (!row) return null;
-
-  const created = safeDate(row.created_at);
-  const used = safeDate(row.used_at);
-  const expires = safeDate(row.expires_at);
+  const created = safeDate(row?.created_at);
+  const used = safeDate(row?.used_at);
+  const expires = safeDate(row?.expires_at);
 
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
-        <div className="p-4 bg-slate-900 text-white">
-          <p className="text-xs font-bold text-emerald-300 uppercase tracking-wider">Voucher AlFra</p>
+    <div className="fixed inset-0 z-999 bg-black/50 flex items-center justify-center p-4">
+      {/* Backdrop */}
+      <div className="absolute inset-0" onClick={closeModal} />
 
-          <h3 className="text-lg font-black">
-            {row.kind === "beneficios" ? row.beneficio_title || "Beneficio AlFra" : row.reward_name || "Premio AlFra"}
-          </h3>
-
-          <p className="text-[11px] text-slate-300 mt-1">{row.kind === "beneficios" ? "Beneficios (Puntos)" : "Sellos"}</p>
-        </div>
-
-        <div className="p-4 space-y-3">
-          {isRedeemed && (
-            <div className="border border-red-300 bg-red-50 text-red-800 rounded-xl p-3 text-sm font-semibold text-center">
-              CANJEADO — Este voucher ya no tiene validez.
-              {used ? <div className="text-[11px] font-normal mt-1">Usado: {formatDateTime(used.toISOString())}</div> : null}
-            </div>
-          )}
-
-          {redeemMsg && (
-            <div className="border rounded-lg bg-amber-50 border-amber-200 p-3 text-sm text-amber-900">{redeemMsg}</div>
-          )}
-
-          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
-            <p className="text-[11px] text-slate-500 font-bold uppercase">Código</p>
-            <p className="text-xl font-black text-slate-900 tracking-wider">{row.voucher_code}</p>
-
-            <div className="mt-2 flex justify-center">
-              <svg ref={barcodeRef} />
-            </div>
-
-            <p className="mt-2 text-[10px] text-slate-500 text-center">Escaneá este código en caja (CODE128).</p>
+      <div className="relative w-full max-w-md bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
+        {loading ? (
+          <div className="p-6 text-center text-slate-500">Cargando voucher...</div>
+        ) : errorMsg ? (
+          <div className="p-6">
+            <div className="border border-red-400 bg-red-50 p-4 rounded-xl text-sm">{errorMsg}</div>
+            <button
+              onClick={closeModal}
+              className="mt-4 w-full bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold py-3 rounded-xl"
+            >
+              Cerrar
+            </button>
           </div>
+        ) : !row ? null : (
+          <>
+            <div className="p-4 bg-slate-900 text-white">
+              <p className="text-xs font-bold text-emerald-300 uppercase tracking-wider">Voucher AlFra</p>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="bg-white border border-slate-200 rounded-xl p-3">
-              <p className="text-[11px] text-slate-500 font-bold uppercase">Emitido</p>
-              <p className="text-sm font-bold text-slate-800">{created ? formatDateTime(created.toISOString()) : "—"}</p>
+              <h3 className="text-lg font-black">
+                {row.kind === "beneficios"
+                  ? row.beneficio_title || "Beneficio AlFra"
+                  : row.reward_name || "Premio AlFra"}
+              </h3>
+
+              <p className="text-[11px] text-slate-300 mt-1">{row.kind === "beneficios" ? "Beneficios (Puntos)" : "Sellos"}</p>
             </div>
 
-            <div className="bg-white border border-slate-200 rounded-xl p-3">
-              <p className="text-[11px] text-slate-500 font-bold uppercase">{row.kind === "sellos" ? "Vence" : "Estado"}</p>
-              <p className={`text-sm font-black ${row.kind === "sellos" ? "text-red-700" : "text-slate-800"}`}>
-                {row.kind === "sellos" ? (expires ? formatDateTime(expires.toISOString()) : "—") : row.status ?? "—"}
+            <div className="p-4 space-y-3">
+              {isRedeemed && (
+                <div className="border border-red-300 bg-red-50 text-red-800 rounded-xl p-3 text-sm font-semibold text-center">
+                  CANJEADO — Este voucher ya no tiene validez.
+                  {used ? <div className="text-[11px] font-normal mt-1">Usado: {formatDateTime(used.toISOString())}</div> : null}
+                </div>
+              )}
+
+              {redeemMsg && (
+                <div className="border rounded-lg bg-amber-50 border-amber-200 p-3 text-sm text-amber-900">{redeemMsg}</div>
+              )}
+
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
+                <p className="text-[11px] text-slate-500 font-bold uppercase">Código</p>
+                <p className="text-xl font-black text-slate-900 tracking-wider">{row.voucher_code}</p>
+
+                <div className="mt-2 flex justify-center">
+                  <svg ref={barcodeRef} />
+                </div>
+
+                <p className="mt-2 text-[10px] text-slate-500 text-center">Escaneá este código en caja (CODE128).</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-white border border-slate-200 rounded-xl p-3">
+                  <p className="text-[11px] text-slate-500 font-bold uppercase">Emitido</p>
+                  <p className="text-sm font-bold text-slate-800">{created ? formatDateTime(created.toISOString()) : "—"}</p>
+                </div>
+
+                <div className="bg-white border border-slate-200 rounded-xl p-3">
+                  <p className="text-[11px] text-slate-500 font-bold uppercase">{row.kind === "sellos" ? "Vence" : "Estado"}</p>
+                  <p className={`text-sm font-black ${row.kind === "sellos" ? "text-red-700" : "text-slate-800"}`}>
+                    {row.kind === "sellos" ? (expires ? formatDateTime(expires.toISOString()) : "—") : row.status ?? "—"}
+                  </p>
+                </div>
+              </div>
+
+              {row.kind === "beneficios" && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-white border border-slate-200 rounded-xl p-3">
+                    <p className="text-[11px] text-slate-500 font-bold uppercase">Costo en puntos</p>
+                    <p className="text-sm font-bold text-slate-800">{row.points_spent ?? 0} pts</p>
+                  </div>
+                  <div className="bg-white border border-slate-200 rounded-xl p-3">
+                    <p className="text-[11px] text-slate-500 font-bold uppercase">Extra $</p>
+                    <p className="text-sm font-bold text-slate-800">{row.cash_extra && row.cash_extra > 0 ? `$${row.cash_extra}` : "—"}</p>
+                  </div>
+                </div>
+              )}
+
+              {row.kind === "beneficios" && row.beneficio_image_url ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={row.beneficio_image_url}
+                  alt={row.beneficio_title ?? "Beneficio"}
+                  className="w-full h-48 object-cover rounded-xl border border-slate-200"
+                />
+              ) : null}
+
+              {row.kind === "beneficios" && (row.beneficio_summary || row.beneficio_content) ? (
+                <div className="bg-white border border-slate-200 rounded-xl p-3 space-y-2">
+                  <p className="text-[11px] text-slate-500 font-bold uppercase">Detalle</p>
+                  {row.beneficio_summary ? <p className="text-sm text-slate-700">{row.beneficio_summary}</p> : null}
+                  {row.beneficio_content ? <p className="text-sm text-slate-700 whitespace-pre-wrap">{row.beneficio_content}</p> : null}
+                </div>
+              ) : null}
+
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={async () => {
+                    const ok = await safeCopy(row.voucher_code);
+                    setRedeemMsg(ok ? "Código copiado." : "No se pudo copiar en este dispositivo.");
+                  }}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl"
+                >
+                  Copiar código
+                </button>
+
+                <button
+                  onClick={() => {
+                    if (row.kind === "beneficios" && isRedeemed) {
+                      setRedeemMsg("Este voucher ya fue canjeado. No tiene validez.");
+                      return;
+                    }
+                    if (row.kind === "beneficios") {
+                      downloadBeneficioPdf(row.voucher_code);
+                      return;
+                    }
+                    handleSavePdfLikeStamps();
+                  }}
+                  className="bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 rounded-xl"
+                >
+                  Guardar PDF
+                </button>
+
+                {whatsappLink ? (
+                  <a
+                    href={whatsappLink}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-center bg-green-600 hover:bg-green-500 text-white font-bold py-3 rounded-xl"
+                  >
+                    WhatsApp
+                  </a>
+                ) : (
+                  <button disabled className="bg-slate-100 text-slate-500 border border-slate-200 font-bold py-3 rounded-xl">
+                    WhatsApp
+                  </button>
+                )}
+
+                <button
+                  onClick={handleShare}
+                  className="bg-slate-100 hover:bg-slate-200 text-slate-900 font-bold py-3 rounded-xl border border-slate-200"
+                >
+                  Compartir
+                </button>
+              </div>
+
+              {row.kind === "beneficios" && isPrivileged && (
+                <button
+                  disabled={redeeming || isRedeemed}
+                  onClick={() => redeemBeneficioVoucher(row.voucher_code)}
+                  className={[
+                    "w-full font-bold py-3 rounded-xl border",
+                    isRedeemed
+                      ? "bg-slate-100 text-slate-500 border-slate-200"
+                      : "bg-amber-600 text-white border-amber-700 hover:bg-amber-700",
+                    redeeming ? "opacity-70" : "",
+                  ].join(" ")}
+                >
+                  {isRedeemed ? "Ya canjeado" : redeeming ? "Canjeando..." : "Marcar como CANJEADO"}
+                </button>
+              )}
+
+              <button
+                onClick={closeModal}
+                className="w-full bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold py-3 rounded-xl"
+              >
+                Cerrar
+              </button>
+
+              <p className="text-[11px] text-slate-500">
+                Mostralo en caja para canjear. Si requiere dinero extra, se cobra al retirar.
               </p>
             </div>
-          </div>
-
-          {row.kind === "beneficios" && (
-            <div className="grid grid-cols-2 gap-3">
-              <div className="bg-white border border-slate-200 rounded-xl p-3">
-                <p className="text-[11px] text-slate-500 font-bold uppercase">Costo en puntos</p>
-                <p className="text-sm font-bold text-slate-800">{row.points_spent ?? 0} pts</p>
-              </div>
-              <div className="bg-white border border-slate-200 rounded-xl p-3">
-                <p className="text-[11px] text-slate-500 font-bold uppercase">Extra $</p>
-                <p className="text-sm font-bold text-slate-800">
-                  {row.cash_extra && row.cash_extra > 0 ? `$${row.cash_extra}` : "—"}
-                </p>
-              </div>
-            </div>
-          )}
-
-          {row.kind === "beneficios" && row.beneficio_image_url ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={row.beneficio_image_url}
-              alt={row.beneficio_title ?? "Beneficio"}
-              className="w-full h-48 object-cover rounded-xl border border-slate-200"
-            />
-          ) : null}
-
-          {row.kind === "beneficios" && (row.beneficio_summary || row.beneficio_content) ? (
-            <div className="bg-white border border-slate-200 rounded-xl p-3 space-y-2">
-              <p className="text-[11px] text-slate-500 font-bold uppercase">Detalle</p>
-              {row.beneficio_summary ? <p className="text-sm text-slate-700">{row.beneficio_summary}</p> : null}
-              {row.beneficio_content ? <p className="text-sm text-slate-700 whitespace-pre-wrap">{row.beneficio_content}</p> : null}
-            </div>
-          ) : null}
-
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              onClick={async () => {
-                if (!row?.voucher_code) return;
-                const ok = await safeCopy(row.voucher_code);
-                setRedeemMsg(ok ? "Código copiado." : "No se pudo copiar en este dispositivo.");
-              }}
-              className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl"
-            >
-              Copiar código
-            </button>
-
-            <button
-              onClick={() => {
-                if (row.kind === "beneficios" && isRedeemed) {
-                  setRedeemMsg("Este voucher ya fue canjeado. No tiene validez.");
-                  return;
-                }
-                if (row.kind === "beneficios") {
-                  downloadBeneficioPdf(row.voucher_code);
-                  return;
-                }
-                handleSavePdfLikeStamps();
-              }}
-              className="bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 rounded-xl"
-            >
-              Guardar PDF
-            </button>
-
-            {whatsappLink ? (
-              <a
-                href={whatsappLink}
-                target="_blank"
-                rel="noreferrer"
-                className="text-center bg-green-600 hover:bg-green-500 text-white font-bold py-3 rounded-xl"
-              >
-                WhatsApp
-              </a>
-            ) : (
-              <button disabled className="bg-slate-100 text-slate-500 border border-slate-200 font-bold py-3 rounded-xl">
-                WhatsApp
-              </button>
-            )}
-
-            <button
-              onClick={handleShare}
-              className="bg-slate-100 hover:bg-slate-200 text-slate-900 font-bold py-3 rounded-xl border border-slate-200"
-            >
-              Compartir
-            </button>
-          </div>
-
-          {row.kind === "beneficios" && isPrivileged && (
-            <button
-              disabled={redeeming || isRedeemed}
-              onClick={() => redeemBeneficioVoucher(row.voucher_code)}
-              className={[
-                "w-full font-bold py-3 rounded-xl border",
-                isRedeemed ? "bg-slate-100 text-slate-500 border-slate-200" : "bg-amber-600 text-white border-amber-700 hover:bg-amber-700",
-                redeeming ? "opacity-70" : "",
-              ].join(" ")}
-            >
-              {isRedeemed ? "Ya canjeado" : redeeming ? "Canjeando..." : "Marcar como CANJEADO"}
-            </button>
-          )}
-
-          <button
-            onClick={() => router.push("/dashboard")}
-            className="w-full bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold py-3 rounded-xl"
-          >
-            Cerrar
-          </button>
-
-          <p className="text-[11px] text-slate-500">
-            Mostralo en caja para canjear. Si requiere dinero extra, se cobra al retirar.
-          </p>
-        </div>
+          </>
+        )}
       </div>
     </div>
   );
