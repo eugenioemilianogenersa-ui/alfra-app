@@ -137,7 +137,8 @@ export default function AdminPuntosClient() {
 
       <div className="bg-white rounded-xl shadow border overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm text-left min-w-[720px]">
+          {/* ✅ min-width SOLO en mobile, en md+ vuelve a full */}
+          <table className="w-full text-sm text-left min-w-[720px] md:min-w-full">
             <thead className="bg-slate-50 uppercase text-xs text-slate-600">
               <tr>
                 <th className="p-4">Usuario</th>
@@ -182,7 +183,8 @@ export default function AdminPuntosClient() {
 
       {selectedUser && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-xl w-full max-w-lg shadow-2xl overflow-hidden max-h-[calc(100dvh-2rem)] flex flex-col">
+          {/* ✅ Modal más “completo” en PC */}
+          <div className="bg-white rounded-xl w-full max-w-lg md:max-w-2xl shadow-2xl overflow-hidden max-h-[calc(100dvh-2rem)] flex flex-col">
             <div className="bg-slate-900 p-4 text-white flex justify-between items-center shrink-0">
               <h3 className="font-bold">Ajustar Puntos: {selectedUser.display_name}</h3>
               <button onClick={() => setSelectedUser(null)} className="text-slate-400 hover:text-white">
@@ -192,7 +194,8 @@ export default function AdminPuntosClient() {
 
             <div className="p-6 grid gap-6 overflow-y-auto pb-safe">
               <form onSubmit={handleTransaction} className="space-y-4 border-b pb-6">
-                <div className="grid grid-cols-2 gap-4">
+                {/* ✅ en PC se ve “ancho y limpio” */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="text-xs font-bold uppercase block mb-1">Monto</label>
                     <input
@@ -217,6 +220,7 @@ export default function AdminPuntosClient() {
                     />
                   </div>
                 </div>
+
                 <button
                   type="submit"
                   className="w-full bg-emerald-600 text-white py-2 rounded font-bold hover:bg-emerald-700 transition"
@@ -232,7 +236,8 @@ export default function AdminPuntosClient() {
                     <p className="text-center text-xs text-slate-400 py-3">Sin movimientos previos.</p>
                   ) : (
                     <div className="overflow-x-auto">
-                      <table className="w-full text-xs min-w-[560px]">
+                      {/* ✅ min-width SOLO en mobile */}
+                      <table className="w-full text-xs min-w-[560px] md:min-w-full">
                         <tbody className="divide-y">
                           {userHistory.map((h) => (
                             <tr key={h.id}>
@@ -243,7 +248,11 @@ export default function AdminPuntosClient() {
                               <td className="p-2 text-slate-500 whitespace-nowrap">
                                 {h.metadata?.actor_role ? `${h.metadata.actor_role}` : ""}
                               </td>
-                              <td className={`p-2 text-right font-bold whitespace-nowrap ${h.delta > 0 ? "text-green-600" : "text-red-600"}`}>
+                              <td
+                                className={`p-2 text-right font-bold whitespace-nowrap ${
+                                  h.delta > 0 ? "text-green-600" : "text-red-600"
+                                }`}
+                              >
                                 {h.delta > 0 ? `+${h.delta}` : h.delta}
                               </td>
                             </tr>
