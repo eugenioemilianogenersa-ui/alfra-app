@@ -273,7 +273,7 @@ export default function AdminVouchersClient() {
     }
   }
 
-  // Redeem: según prefijo/code, intentamos Beneficios primero (porque validate ya lo trajo)
+  // Redeem: beneficios si no hay expires_at (beneficios no expira)
   async function redeemVoucher() {
     setErr(null);
     if (!result) return;
@@ -292,9 +292,7 @@ export default function AdminVouchersClient() {
         return;
       }
 
-      // Si el result vino de Beneficios, canjeamos Beneficios
-      // Heurística segura: si reward_name coincide con beneficios (ej "Gorra Alfra") y NO tiene expires_at -> beneficios.
-      const looksLikeBeneficios = !result.expires_at; // beneficios no tiene expiración
+      const looksLikeBeneficios = !result.expires_at;
 
       if (looksLikeBeneficios) {
         const r = await fetch("/api/beneficios/voucher/redeem", {
@@ -497,7 +495,7 @@ export default function AdminVouchersClient() {
       });
 
   return (
-    <div className="max-w-2xl mx-auto p-6">
+    <div className="max-w-2xl mx-auto p-4 sm:p-6">
       <div className="mb-2">
         <p className="text-xs font-bold text-slate-400 uppercase tracking-wide">Admin / Staff</p>
         <h1 className="text-2xl font-black text-slate-900">Vouchers (Canjes)</h1>
@@ -510,18 +508,19 @@ export default function AdminVouchersClient() {
       <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
         <label className="text-xs font-bold text-slate-500 uppercase">Código voucher</label>
 
-        <div className="mt-2 flex gap-2">
+        {/* ✅ responsive: en mobile apila, en sm+ vuelve a fila */}
+        <div className="mt-2 flex flex-col sm:flex-row gap-2">
           <input
             ref={codeInputRef}
             value={code}
             onChange={(e) => setCode(e.target.value)}
             placeholder="ALFRA-XXXX-YYYY"
-            className="flex-1 rounded-xl border border-slate-300 px-3 py-3 font-mono text-sm outline-none focus:ring-2 focus:ring-emerald-400"
+            className="w-full sm:flex-1 rounded-xl border border-slate-300 px-3 py-3 font-mono text-sm outline-none focus:ring-2 focus:ring-emerald-400"
           />
           <button
             onClick={lookupVoucher}
             disabled={submitting}
-            className="rounded-xl px-4 py-3 font-black bg-slate-900 hover:bg-slate-800 text-white disabled:opacity-60 disabled:cursor-not-allowed"
+            className="w-full sm:w-auto rounded-xl px-4 py-3 font-black bg-slate-900 hover:bg-slate-800 text-white disabled:opacity-60 disabled:cursor-not-allowed"
           >
             {submitting ? "..." : "BUSCAR"}
           </button>
@@ -535,10 +534,10 @@ export default function AdminVouchersClient() {
 
         {result && (
           <div className="mt-4 border border-slate-200 rounded-2xl overflow-hidden">
-            <div className="p-3 bg-slate-900 text-white flex items-center justify-between">
-              <div>
+            <div className="p-3 bg-slate-900 text-white flex items-center justify-between gap-3">
+              <div className="min-w-0">
                 <p className="text-[11px] text-slate-300 font-bold uppercase">Resultado</p>
-                <p className="font-mono font-black">{result.code}</p>
+                <p className="font-mono font-black truncate">{result.code}</p>
               </div>
               <span className={statusBadge(result.status)}>{result.status}</span>
             </div>
@@ -546,7 +545,9 @@ export default function AdminVouchersClient() {
             <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
                 <p className="text-[11px] text-slate-500 font-bold uppercase">Titular</p>
-                <p className="text-sm font-black text-slate-900">{result.owner?.display_name || "-"}</p>
+                <p className="text-sm font-black text-slate-900 wrap-break-word">
+                  {result.owner?.display_name || "-"}
+                </p>
                 <p className="text-xs font-bold text-slate-600 mt-1">
                   {result.owner?.phone_normalized ? `Tel: ${result.owner.phone_normalized}` : ""}
                 </p>
@@ -554,13 +555,13 @@ export default function AdminVouchersClient() {
 
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
                 <p className="text-[11px] text-slate-500 font-bold uppercase">Premio</p>
-                <p className="text-sm font-black text-slate-900">{result.reward_name || "-"}</p>
+                <p className="text-sm font-black text-slate-900 wrap-break-word">{result.reward_name || "-"}</p>
               </div>
 
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 sm:col-span-2">
                 <p className="text-[11px] text-slate-500 font-bold uppercase">Código de barras</p>
-                <div className="mt-2 flex justify-center bg-white border border-slate-200 rounded-xl p-2">
-                  <svg ref={barcodeRef} />
+                <div className="mt-2 flex justify-center bg-white border border-slate-200 rounded-xl p-2 overflow-hidden">
+                  <svg ref={barcodeRef} className="max-w-full h-auto" />
                 </div>
               </div>
 
@@ -581,7 +582,7 @@ export default function AdminVouchersClient() {
 
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
                 <p className="text-[11px] text-slate-500 font-bold uppercase">Observación</p>
-                <p className="text-sm font-bold text-slate-800">{result.redeemed_note || "-"}</p>
+                <p className="text-sm font-bold text-slate-800 wrap-break-word">{result.redeemed_note || "-"}</p>
               </div>
             </div>
 
@@ -627,11 +628,12 @@ export default function AdminVouchersClient() {
                     </div>
                   </div>
 
-                  <div className="mt-3 flex gap-2">
+                  {/* ✅ botones en mobile full width */}
+                  <div className="mt-3 flex flex-col sm:flex-row gap-2">
                     <button
                       onClick={redeemVoucher}
                       disabled={redeeming}
-                      className="rounded-xl px-4 py-3 font-black bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-60 disabled:cursor-not-allowed"
+                      className="w-full sm:w-auto rounded-xl px-4 py-3 font-black bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-60 disabled:cursor-not-allowed"
                     >
                       {redeeming ? "..." : "CONFIRMAR CANJE"}
                     </button>
@@ -646,7 +648,7 @@ export default function AdminVouchersClient() {
                           codeInputRef.current?.select();
                         }, 20);
                       }}
-                      className="rounded-xl px-4 py-3 font-black bg-slate-100 hover:bg-slate-200 text-slate-900"
+                      className="w-full sm:w-auto rounded-xl px-4 py-3 font-black bg-slate-100 hover:bg-slate-200 text-slate-900"
                     >
                       LIMPIAR
                     </button>
@@ -664,7 +666,7 @@ export default function AdminVouchersClient() {
         )}
       </div>
 
-      {/* HISTORIAL SELLOS (igual que estaba) */}
+      {/* HISTORIAL SELLOS */}
       <div className="mt-6 bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
         <div className="flex items-center justify-between gap-3">
           <div>
@@ -681,16 +683,17 @@ export default function AdminVouchersClient() {
           </button>
         </div>
 
-        <div className="mt-3 flex gap-2">
+        {/* ✅ responsive search bar */}
+        <div className="mt-3 flex flex-col sm:flex-row gap-2">
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Buscar..."
-            className="flex-1 rounded-xl border border-slate-300 px-3 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-400"
+            className="w-full sm:flex-1 rounded-xl border border-slate-300 px-3 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-400"
           />
           <button
             onClick={() => setQ("")}
-            className="rounded-xl px-4 py-3 font-black bg-slate-100 hover:bg-slate-200 text-slate-900"
+            className="w-full sm:w-auto rounded-xl px-4 py-3 font-black bg-slate-100 hover:bg-slate-200 text-slate-900"
           >
             LIMPIAR
           </button>
@@ -702,45 +705,56 @@ export default function AdminVouchersClient() {
           </div>
         )}
 
+        {/* ✅ scroll horizontal en mobile, desktop igual */}
         <div className="mt-4 border border-slate-200 rounded-2xl overflow-hidden">
-          <div className="grid grid-cols-12 bg-slate-50 text-slate-600 text-[11px] font-black uppercase px-3 py-2">
-            <div className="col-span-4">Código</div>
-            <div className="col-span-3">Titular</div>
-            <div className="col-span-2">Canje</div>
-            <div className="col-span-3">Obs</div>
-          </div>
+          <div className="overflow-x-auto">
+            <div className="min-w-[720px] md:min-w-full">
+              <div className="grid grid-cols-12 bg-slate-50 text-slate-600 text-[11px] font-black uppercase px-3 py-2">
+                <div className="col-span-4">Código</div>
+                <div className="col-span-3">Titular</div>
+                <div className="col-span-2">Canje</div>
+                <div className="col-span-3">Obs</div>
+              </div>
 
-          {historyLoading ? (
-            <div className="p-4 text-sm font-bold text-slate-600">Cargando historial...</div>
-          ) : filteredHistory.length === 0 ? (
-            <div className="p-4 text-sm font-bold text-slate-600">Sin resultados.</div>
-          ) : (
-            <div className="divide-y divide-slate-200">
-              {filteredHistory.map((row) => (
-                <div key={row.id} className="grid grid-cols-12 px-3 py-3 text-sm">
-                  <div className="col-span-4">
-                    <div className="font-mono font-black text-slate-900">{row.code}</div>
-                    <div className="text-xs font-bold text-slate-600 mt-1">{row.reward_name || "-"}</div>
-                  </div>
+              {historyLoading ? (
+                <div className="p-4 text-sm font-bold text-slate-600">Cargando historial...</div>
+              ) : filteredHistory.length === 0 ? (
+                <div className="p-4 text-sm font-bold text-slate-600">Sin resultados.</div>
+              ) : (
+                <div className="divide-y divide-slate-200">
+                  {filteredHistory.map((row) => (
+                    <div key={row.id} className="grid grid-cols-12 px-3 py-3 text-sm">
+                      <div className="col-span-4">
+                        <div className="font-mono font-black text-slate-900 whitespace-nowrap">{row.code}</div>
+                        <div className="text-xs font-bold text-slate-600 mt-1">{row.reward_name || "-"}</div>
+                      </div>
 
-                  <div className="col-span-3">
-                    <div className="font-black text-slate-900">{row.profiles?.display_name || "-"}</div>
-                    <div className="text-xs font-bold text-slate-600 mt-1">{row.profiles?.phone_normalized || ""}</div>
-                  </div>
+                      <div className="col-span-3">
+                        <div className="font-black text-slate-900">{row.profiles?.display_name || "-"}</div>
+                        <div className="text-xs font-bold text-slate-600 mt-1 whitespace-nowrap">
+                          {row.profiles?.phone_normalized || ""}
+                        </div>
+                      </div>
 
-                  <div className="col-span-2">
-                    <div className="font-black text-slate-900">{row.redeemed_channel || "-"}</div>
-                    <div className="text-xs font-bold text-slate-600 mt-1">{formatDateTime(row.redeemed_at)}</div>
-                  </div>
+                      <div className="col-span-2">
+                        <div className="font-black text-slate-900 whitespace-nowrap">{row.redeemed_channel || "-"}</div>
+                        <div className="text-xs font-bold text-slate-600 mt-1 whitespace-nowrap">
+                          {formatDateTime(row.redeemed_at)}
+                        </div>
+                      </div>
 
-                  <div className="col-span-3">
-                    <div className="text-xs font-bold text-slate-900">{row.redeemed_presenter || "-"}</div>
-                    <div className="text-xs text-slate-600 mt-1 line-clamp-2">{row.redeemed_note || "-"}</div>
-                  </div>
+                      <div className="col-span-3">
+                        <div className="text-xs font-bold text-slate-900">{row.redeemed_presenter || "-"}</div>
+                        <div className="text-xs text-slate-600 mt-1 line-clamp-2 wrap-break-word">
+                          {row.redeemed_note || "-"}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              )}
             </div>
-          )}
+          </div>
         </div>
 
         <p className="mt-3 text-[11px] text-slate-500">
@@ -748,7 +762,7 @@ export default function AdminVouchersClient() {
         </p>
       </div>
 
-      {/* HISTORIAL BENEFICIOS (nuevo, mismo diseño) */}
+      {/* HISTORIAL BENEFICIOS */}
       <div className="mt-6 bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
         <div className="flex items-center justify-between gap-3">
           <div>
@@ -765,16 +779,17 @@ export default function AdminVouchersClient() {
           </button>
         </div>
 
-        <div className="mt-3 flex gap-2">
+        {/* ✅ responsive search bar */}
+        <div className="mt-3 flex flex-col sm:flex-row gap-2">
           <input
             value={qb}
             onChange={(e) => setQb(e.target.value)}
             placeholder="Buscar..."
-            className="flex-1 rounded-xl border border-slate-300 px-3 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-400"
+            className="w-full sm:flex-1 rounded-xl border border-slate-300 px-3 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-400"
           />
           <button
             onClick={() => setQb("")}
-            className="rounded-xl px-4 py-3 font-black bg-slate-100 hover:bg-slate-200 text-slate-900"
+            className="w-full sm:w-auto rounded-xl px-4 py-3 font-black bg-slate-100 hover:bg-slate-200 text-slate-900"
           >
             LIMPIAR
           </button>
@@ -786,45 +801,56 @@ export default function AdminVouchersClient() {
           </div>
         )}
 
+        {/* ✅ scroll horizontal en mobile, desktop igual */}
         <div className="mt-4 border border-slate-200 rounded-2xl overflow-hidden">
-          <div className="grid grid-cols-12 bg-slate-50 text-slate-600 text-[11px] font-black uppercase px-3 py-2">
-            <div className="col-span-4">Código</div>
-            <div className="col-span-3">Titular</div>
-            <div className="col-span-2">Canje</div>
-            <div className="col-span-3">Obs</div>
-          </div>
+          <div className="overflow-x-auto">
+            <div className="min-w-[720px] md:min-w-full">
+              <div className="grid grid-cols-12 bg-slate-50 text-slate-600 text-[11px] font-black uppercase px-3 py-2">
+                <div className="col-span-4">Código</div>
+                <div className="col-span-3">Titular</div>
+                <div className="col-span-2">Canje</div>
+                <div className="col-span-3">Obs</div>
+              </div>
 
-          {benefHistoryLoading ? (
-            <div className="p-4 text-sm font-bold text-slate-600">Cargando historial...</div>
-          ) : filteredBenefHistory.length === 0 ? (
-            <div className="p-4 text-sm font-bold text-slate-600">Sin resultados.</div>
-          ) : (
-            <div className="divide-y divide-slate-200">
-              {filteredBenefHistory.map((row) => (
-                <div key={row.id} className="grid grid-cols-12 px-3 py-3 text-sm">
-                  <div className="col-span-4">
-                    <div className="font-mono font-black text-slate-900">{row.code}</div>
-                    <div className="text-xs font-bold text-slate-600 mt-1">{row.reward_name || "-"}</div>
-                  </div>
+              {benefHistoryLoading ? (
+                <div className="p-4 text-sm font-bold text-slate-600">Cargando historial...</div>
+              ) : filteredBenefHistory.length === 0 ? (
+                <div className="p-4 text-sm font-bold text-slate-600">Sin resultados.</div>
+              ) : (
+                <div className="divide-y divide-slate-200">
+                  {filteredBenefHistory.map((row) => (
+                    <div key={row.id} className="grid grid-cols-12 px-3 py-3 text-sm">
+                      <div className="col-span-4">
+                        <div className="font-mono font-black text-slate-900 whitespace-nowrap">{row.code}</div>
+                        <div className="text-xs font-bold text-slate-600 mt-1">{row.reward_name || "-"}</div>
+                      </div>
 
-                  <div className="col-span-3">
-                    <div className="font-black text-slate-900">{row.profiles?.display_name || "-"}</div>
-                    <div className="text-xs font-bold text-slate-600 mt-1">{row.profiles?.phone_normalized || ""}</div>
-                  </div>
+                      <div className="col-span-3">
+                        <div className="font-black text-slate-900">{row.profiles?.display_name || "-"}</div>
+                        <div className="text-xs font-bold text-slate-600 mt-1 whitespace-nowrap">
+                          {row.profiles?.phone_normalized || ""}
+                        </div>
+                      </div>
 
-                  <div className="col-span-2">
-                    <div className="font-black text-slate-900">{row.redeemed_channel || "-"}</div>
-                    <div className="text-xs font-bold text-slate-600 mt-1">{formatDateTime(row.redeemed_at)}</div>
-                  </div>
+                      <div className="col-span-2">
+                        <div className="font-black text-slate-900 whitespace-nowrap">{row.redeemed_channel || "-"}</div>
+                        <div className="text-xs font-bold text-slate-600 mt-1 whitespace-nowrap">
+                          {formatDateTime(row.redeemed_at)}
+                        </div>
+                      </div>
 
-                  <div className="col-span-3">
-                    <div className="text-xs font-bold text-slate-900">{row.redeemed_presenter || "-"}</div>
-                    <div className="text-xs text-slate-600 mt-1 line-clamp-2">{row.redeemed_note || "-"}</div>
-                  </div>
+                      <div className="col-span-3">
+                        <div className="text-xs font-bold text-slate-900">{row.redeemed_presenter || "-"}</div>
+                        <div className="text-xs text-slate-600 mt-1 line-clamp-2 wrap-break-word">
+                          {row.redeemed_note || "-"}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              )}
             </div>
-          )}
+          </div>
         </div>
 
         <p className="mt-3 text-[11px] text-slate-500">
