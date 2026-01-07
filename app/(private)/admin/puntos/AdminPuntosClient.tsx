@@ -61,7 +61,6 @@ export default function AdminPuntosClient() {
   }
 
   async function loadHistory(userId: string) {
-    // si esto también te queda vacío por RLS, lo pasamos a endpoint igual
     const { data } = await supabase
       .from("loyalty_events")
       .select("id, delta, reason, created_at, metadata")
@@ -132,67 +131,66 @@ export default function AdminPuntosClient() {
       <input
         placeholder="Buscar usuario..."
         className="w-full p-3 border rounded-lg shadow-sm"
+        value={search}
         onChange={(e) => setSearch(e.target.value)}
       />
 
       <div className="bg-white rounded-xl shadow border overflow-hidden">
-        <table className="w-full text-sm text-left">
-          <thead className="bg-slate-50 uppercase text-xs text-slate-600">
-            <tr>
-              <th className="p-4">Usuario</th>
-              <th className="p-4 text-right">Saldo Actual</th>
-              <th className="p-4 text-center">Acción</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y">
-            {filtered.map((u) => (
-              <tr key={u.id} className="hover:bg-slate-50">
-                <td className="p-4">
-                  <p className="font-bold">{u.display_name}</p>
-                  <p className="text-xs text-slate-400">{u.email}</p>
-                </td>
-                <td className="p-4 text-right">
-                  <span
-                    className={`font-bold text-lg ${
-                      u.points > 0 ? "text-emerald-600" : "text-slate-400"
-                    }`}
-                  >
-                    {u.points} pts
-                  </span>
-                </td>
-                <td className="p-4 text-center">
-                  <button
-                    onClick={() => setSelectedUser(u)}
-                    className="bg-emerald-100 text-emerald-700 px-3 py-1.5 rounded text-xs font-bold hover:bg-emerald-200 transition"
-                  >
-                    ⚖️ Ver / Ajustar
-                  </button>
-                </td>
-              </tr>
-            ))}
-
-            {filtered.length === 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm text-left min-w-[720px]">
+            <thead className="bg-slate-50 uppercase text-xs text-slate-600">
               <tr>
-                <td colSpan={3} className="p-6 text-center text-slate-500">
-                  No hay datos para mostrar.
-                </td>
+                <th className="p-4">Usuario</th>
+                <th className="p-4 text-right whitespace-nowrap">Saldo Actual</th>
+                <th className="p-4 text-center whitespace-nowrap">Acción</th>
               </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y">
+              {filtered.map((u) => (
+                <tr key={u.id} className="hover:bg-slate-50">
+                  <td className="p-4">
+                    <p className="font-bold">{u.display_name}</p>
+                    <p className="text-xs text-slate-400">{u.email}</p>
+                  </td>
+                  <td className="p-4 text-right">
+                    <span className={`font-bold text-lg ${u.points > 0 ? "text-emerald-600" : "text-slate-400"}`}>
+                      {u.points} pts
+                    </span>
+                  </td>
+                  <td className="p-4 text-center">
+                    <button
+                      onClick={() => setSelectedUser(u)}
+                      className="bg-emerald-100 text-emerald-700 px-3 py-1.5 rounded text-xs font-bold hover:bg-emerald-200 transition"
+                    >
+                      ⚖️ Ver / Ajustar
+                    </button>
+                  </td>
+                </tr>
+              ))}
+
+              {filtered.length === 0 && (
+                <tr>
+                  <td colSpan={3} className="p-6 text-center text-slate-500">
+                    No hay datos para mostrar.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {selectedUser && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-xl w-full max-w-lg shadow-2xl overflow-hidden">
-            <div className="bg-slate-900 p-4 text-white flex justify-between items-center">
+          <div className="bg-white rounded-xl w-full max-w-lg shadow-2xl overflow-hidden max-h-[calc(100dvh-2rem)] flex flex-col">
+            <div className="bg-slate-900 p-4 text-white flex justify-between items-center shrink-0">
               <h3 className="font-bold">Ajustar Puntos: {selectedUser.display_name}</h3>
               <button onClick={() => setSelectedUser(null)} className="text-slate-400 hover:text-white">
                 ✕
               </button>
             </div>
 
-            <div className="p-6 grid gap-6">
+            <div className="p-6 grid gap-6 overflow-y-auto pb-safe">
               <form onSubmit={handleTransaction} className="space-y-4 border-b pb-6">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -233,20 +231,26 @@ export default function AdminPuntosClient() {
                   {userHistory.length === 0 ? (
                     <p className="text-center text-xs text-slate-400 py-3">Sin movimientos previos.</p>
                   ) : (
-                    <table className="w-full text-xs">
-                      <tbody className="divide-y">
-                        {userHistory.map((h) => (
-                          <tr key={h.id}>
-                            <td className="p-2 text-slate-500">{new Date(h.created_at).toLocaleString()}</td>
-                            <td className="p-2 text-slate-800">{h.reason}</td>
-                            <td className="p-2 text-slate-500">{h.metadata?.actor_role ? `${h.metadata.actor_role}` : ""}</td>
-                            <td className={`p-2 text-right font-bold ${h.delta > 0 ? "text-green-600" : "text-red-600"}`}>
-                              {h.delta > 0 ? `+${h.delta}` : h.delta}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs min-w-[560px]">
+                        <tbody className="divide-y">
+                          {userHistory.map((h) => (
+                            <tr key={h.id}>
+                              <td className="p-2 text-slate-500 whitespace-nowrap">
+                                {new Date(h.created_at).toLocaleString()}
+                              </td>
+                              <td className="p-2 text-slate-800">{h.reason}</td>
+                              <td className="p-2 text-slate-500 whitespace-nowrap">
+                                {h.metadata?.actor_role ? `${h.metadata.actor_role}` : ""}
+                              </td>
+                              <td className={`p-2 text-right font-bold whitespace-nowrap ${h.delta > 0 ? "text-green-600" : "text-red-600"}`}>
+                                {h.delta > 0 ? `+${h.delta}` : h.delta}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   )}
                 </div>
               </div>

@@ -456,28 +456,20 @@ export default function DashboardClient() {
   }
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        Cargando...
-      </div>
-    );
+    return <div className="min-h-dvh flex items-center justify-center bg-slate-50">Cargando...</div>;
   }
 
   const isPreview = searchParams.get("preview") === "true";
 
   return (
-    <div className="pb-24 bg-slate-50 min-h-screen">
+    <div className="bg-slate-50 min-h-dvh pb-24">
       {isPreview && (
-        <div className="bg-amber-100 text-amber-800 text-xs text-center py-1 font-bold fixed top-0 w-full z-50">
+        <div className="bg-amber-100 text-amber-800 text-xs text-center py-1 font-bold fixed top-0 w-full z-50 pt-safe">
           👁️ MODO VISTA PREVIA
         </div>
       )}
 
-      <div
-        className={`bg-slate-900 text-white p-6 rounded-b-3xl shadow-lg relative overflow-hidden ${
-          isPreview ? "mt-6" : ""
-        }`}
-      >
+      <div className={`bg-slate-900 text-white p-6 rounded-b-3xl shadow-lg relative overflow-hidden ${isPreview ? "mt-6" : ""}`}>
         <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 rounded-full blur-2xl -mr-10 -mt-10 pointer-events-none"></div>
         <div className="relative z-10">
           <p className="text-slate-400 text-sm mb-1">Bienvenido,</p>
@@ -485,9 +477,7 @@ export default function DashboardClient() {
 
           <div className="flex items-center justify-between bg-white/10 backdrop-blur-md p-4 rounded-xl border border-white/10 transition-all duration-300">
             <div>
-              <p className="text-xs text-emerald-300 font-bold tracking-wider uppercase mb-1">
-                Tus Puntos AlFra
-              </p>
+              <p className="text-xs text-emerald-300 font-bold tracking-wider uppercase mb-1">Tus Puntos AlFra</p>
               <p className="text-3xl font-black text-amber-400 transition-all">{points}</p>
             </div>
 
@@ -501,7 +491,7 @@ export default function DashboardClient() {
         </div>
       </div>
 
-      <div className="px-6 -mt-4 relative z-20">
+      <div className="px-4 sm:px-6 -mt-4 relative z-20">
         <StampGrid current={stamps} onRedeem={handleRedeem} redeeming={redeeming} />
         {redeemError && (
           <div className="mt-3 text-xs font-bold text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
@@ -510,39 +500,31 @@ export default function DashboardClient() {
         )}
       </div>
 
-      <div className="px-6 mt-6">
+      <div className="px-4 sm:px-6 mt-6">
         <div className="bg-white p-4 rounded-xl shadow-md border border-slate-100">
           <h2 className="text-xs font-bold text-slate-400 uppercase mb-3 tracking-wide">Servicios</h2>
           <div className="grid grid-cols-4 gap-2 text-center">
             <Link href="/carta" className="flex flex-col items-center gap-2 group">
-              <div className="w-12 h-12 bg-amber-100 text-amber-600 rounded-2xl flex items-center justify-center text-xl">
-                🍔
-              </div>
+              <div className="w-12 h-12 bg-amber-100 text-amber-600 rounded-2xl flex items-center justify-center text-xl">🍔</div>
               <span className="text-[10px] font-medium text-slate-600">Carta</span>
             </Link>
             <Link href="/choperas" className="flex flex-col items-center gap-2 group">
-              <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center text-xl">
-                🍺
-              </div>
+              <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center text-xl">🍺</div>
               <span className="text-[10px] font-medium text-slate-600">Choperas</span>
             </Link>
             <Link href="/beneficios" className="flex flex-col items-center gap-2 group">
-              <div className="w-12 h-12 bg-purple-100 text-purple-600 rounded-2xl flex items-center justify-center text-xl">
-                💯​
-              </div>
+              <div className="w-12 h-12 bg-purple-100 text-purple-600 rounded-2xl flex items-center justify-center text-xl">💯​</div>
               <span className="text-[10px] font-medium text-slate-600">Beneficios</span>
             </Link>
             <Link href="/mis-pedidos" className="flex flex-col items-center gap-2 group">
-              <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center text-xl">
-                🛵
-              </div>
+              <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center text-xl">🛵</div>
               <span className="text-[10px] font-medium text-slate-600">Seguimiento</span>
             </Link>
           </div>
         </div>
       </div>
 
-      <div className="px-6 mt-6">
+      <div className="px-4 sm:px-6 mt-6">
         <div className="flex justify-between items-center mb-3">
           <h2 className="font-bold text-slate-800">Novedades & Eventos</h2>
         </div>
@@ -554,10 +536,7 @@ export default function DashboardClient() {
             </div>
           ) : (
             news.map((item) => (
-              <div
-                key={item.id}
-                className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm"
-              >
+              <div key={item.id} className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
                 {item.image_url && (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={item.image_url} alt={item.title} className="h-32 w-full object-cover" />
@@ -572,21 +551,26 @@ export default function DashboardClient() {
         </div>
       </div>
 
+      {/* MODAL VOUCHER (sellos) */}
       {voucher && (
         <div className="fixed inset-0 z-999 bg-black/50 flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
-            <div className="p-4 bg-slate-900 text-white">
+          <div className="absolute inset-0" onClick={() => setVoucher(null)} />
+
+          <div className="relative w-full max-w-md bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden max-h-[calc(100dvh-2rem)] flex flex-col">
+            <div className="p-4 bg-slate-900 text-white shrink-0">
               <p className="text-xs font-bold text-emerald-300 uppercase tracking-wider">Voucher AlFra</p>
               <h3 className="text-lg font-black">{voucher.reward_name}</h3>
             </div>
 
-            <div className="p-4 space-y-3">
+            <div className="p-4 space-y-3 overflow-y-auto pb-safe">
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
                 <p className="text-[11px] text-slate-500 font-bold uppercase">Código</p>
-                <p className="text-xl font-black text-slate-900 tracking-wider">{voucher.code}</p>
+                <p className="text-xl font-black text-slate-900 tracking-wider break-all">{voucher.code}</p>
 
-                <div className="mt-2 flex justify-center">
-                  <svg ref={barcodeRef} />
+                <div className="mt-2 w-full overflow-x-auto">
+                  <div className="min-w-[320px] flex justify-center">
+                    <svg ref={barcodeRef} className="w-full max-w-[520px]" />
+                  </div>
                 </div>
 
                 <p className="mt-2 text-[10px] text-slate-500 text-center">
@@ -606,17 +590,11 @@ export default function DashboardClient() {
               </div>
 
               <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={handleCopyCode}
-                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl"
-                >
+                <button onClick={handleCopyCode} className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl">
                   Copiar código
                 </button>
 
-                <button
-                  onClick={handleSavePdf}
-                  className="bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 rounded-xl"
-                >
+                <button onClick={handleSavePdf} className="bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 rounded-xl">
                   Guardar PDF
                 </button>
 

@@ -94,7 +94,6 @@ export default function VoucherClient() {
     router.push("/dashboard");
   }
 
-  // ✅ Cerrar con ESC
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") closeModal();
@@ -131,11 +130,8 @@ export default function VoucherClient() {
       try {
         const { data: roleData } = await supabase.rpc("get_my_role");
         if (typeof roleData === "string" && roleData) setMyRole(roleData);
-      } catch {
-        // no bloquea
-      }
+      } catch {}
 
-      // 1) RPC unificado
       const { data, error } = await supabase.rpc("get_voucher_by_code", { p_code: code });
 
       if (error) {
@@ -152,7 +148,6 @@ export default function VoucherClient() {
         return;
       }
 
-      // 2) Fallback beneficios
       const { data: bv, error: bvErr } = await supabase
         .from("beneficios_vouchers")
         .select(
@@ -203,7 +198,6 @@ export default function VoucherClient() {
         return;
       }
 
-      // 3) Fallback sellos
       const { data: sv, error: svErr } = await supabase
         .from("stamps_vouchers")
         .select("code,status,issued_at,redeemed_at,reward_name,expires_at")
@@ -511,10 +505,9 @@ export default function VoucherClient() {
 
   return (
     <div className="fixed inset-0 z-999 bg-black/50 flex items-center justify-center p-4">
-      {/* Backdrop */}
       <div className="absolute inset-0" onClick={closeModal} />
 
-      <div className="relative w-full max-w-md bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
+      <div className="relative w-full max-w-md bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden max-h-[calc(100dvh-2rem)] flex flex-col">
         {loading ? (
           <div className="p-6 text-center text-slate-500">Cargando voucher...</div>
         ) : errorMsg ? (
@@ -529,7 +522,7 @@ export default function VoucherClient() {
           </div>
         ) : !row ? null : (
           <>
-            <div className="p-4 bg-slate-900 text-white">
+            <div className="p-4 bg-slate-900 text-white shrink-0">
               <p className="text-xs font-bold text-emerald-300 uppercase tracking-wider">Voucher AlFra</p>
 
               <h3 className="text-lg font-black">
@@ -538,14 +531,20 @@ export default function VoucherClient() {
                   : row.reward_name || "Premio AlFra"}
               </h3>
 
-              <p className="text-[11px] text-slate-300 mt-1">{row.kind === "beneficios" ? "Beneficios (Puntos)" : "Sellos"}</p>
+              <p className="text-[11px] text-slate-300 mt-1">
+                {row.kind === "beneficios" ? "Beneficios (Puntos)" : "Sellos"}
+              </p>
             </div>
 
-            <div className="p-4 space-y-3">
+            <div className="p-4 space-y-3 overflow-y-auto pb-safe">
               {isRedeemed && (
                 <div className="border border-red-300 bg-red-50 text-red-800 rounded-xl p-3 text-sm font-semibold text-center">
                   CANJEADO — Este voucher ya no tiene validez.
-                  {used ? <div className="text-[11px] font-normal mt-1">Usado: {formatDateTime(used.toISOString())}</div> : null}
+                  {used ? (
+                    <div className="text-[11px] font-normal mt-1">
+                      Usado: {formatDateTime(used.toISOString())}
+                    </div>
+                  ) : null}
                 </div>
               )}
 
@@ -555,10 +554,12 @@ export default function VoucherClient() {
 
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
                 <p className="text-[11px] text-slate-500 font-bold uppercase">Código</p>
-                <p className="text-xl font-black text-slate-900 tracking-wider">{row.voucher_code}</p>
+                <p className="text-xl font-black text-slate-900 tracking-wider break-all">{row.voucher_code}</p>
 
-                <div className="mt-2 flex justify-center">
-                  <svg ref={barcodeRef} />
+                <div className="mt-2 w-full overflow-x-auto">
+                  <div className="min-w-[320px] flex justify-center">
+                    <svg ref={barcodeRef} className="w-full max-w-[520px]" />
+                  </div>
                 </div>
 
                 <p className="mt-2 text-[10px] text-slate-500 text-center">Escaneá este código en caja (CODE128).</p>
@@ -586,7 +587,9 @@ export default function VoucherClient() {
                   </div>
                   <div className="bg-white border border-slate-200 rounded-xl p-3">
                     <p className="text-[11px] text-slate-500 font-bold uppercase">Extra $</p>
-                    <p className="text-sm font-bold text-slate-800">{row.cash_extra && row.cash_extra > 0 ? `$${row.cash_extra}` : "—"}</p>
+                    <p className="text-sm font-bold text-slate-800">
+                      {row.cash_extra && row.cash_extra > 0 ? `$${row.cash_extra}` : "—"}
+                    </p>
                   </div>
                 </div>
               )}
