@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getFudoSales, getFudoSaleDetail } from "@/lib/fudoClient";
 import { applyStamp, revokeStampByRef, getStampConfig } from "@/lib/stampsEngine";
-import { applyLoyaltyPointsForOrder } from "@/lib/loyaltyPointsEngine";
 
 // 🔢 Normalizar teléfono de Fudo a un formato común:
 function normalizePhone(raw?: string | null): string | null {
@@ -352,37 +351,7 @@ export async function GET() {
             note: e?.message || "unknown",
           });
         }
-
-        // ✅ PUNTOS (AUTO) - por gasto, idempotente por order.id
-        try {
-          const prevEstado = (existingOrder?.estado ?? null) as string | null;
-          if (finalUserId && prevEstado !== finalEstado) {
-            const res = await applyLoyaltyPointsForOrder({
-              userId: finalUserId,
-              orderId: String(upsertedOrder.id),
-              amount: Number(monto),
-              estadoFinal: String(finalEstado),
-            });
-
-            await logSync({
-              sale_id: saleId,
-              order_id: upsertedOrder.id,
-              action: "LOYALTY_POINTS",
-              old_estado: prevEstado,
-              new_estado: estadoDesdeFudo,
-              final_estado: finalEstado,
-              note: JSON.stringify(res),
-            });
-          }
-        } catch (e: any) {
-          await logSync({
-            sale_id: saleId,
-            order_id: upsertedOrder.id,
-            action: "ERROR_LOYALTY_POINTS",
-            note: e?.message || "unknown",
-          });
-        }
-
+  
         // PUSH por cambio real (estado de pedido)
         const prevEstado = (existingOrder?.estado ?? null) as string | null;
 
