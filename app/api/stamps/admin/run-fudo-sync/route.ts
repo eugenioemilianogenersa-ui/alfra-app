@@ -1,6 +1,37 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+
+type CookiesToSetItem = {
+  name: string;
+  value: string;
+  options: CookieOptions;
+};
+
+async function getUserFromCookie(req: NextRequest) {
+  const res = NextResponse.next();
+
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return req.cookies.getAll();
+        },
+        setAll(cookiesToSet: CookiesToSetItem[]) {
+          cookiesToSet.forEach((c) => res.cookies.set(c.name, c.value, c.options));
+        },
+      },
+    }
+  );
+
+  const { data, error } = await supabase.auth.getUser();
+  if (error || !data?.user) return null;
+
+  return { user: data.user, supabase };
+}
 
 async function getUserFromBearer(req: NextRequest) {
   const auth = req.headers.get("authorization") || "";
@@ -9,7 +40,7 @@ async function getUserFromBearer(req: NextRequest) {
   const token = auth.slice(7).trim();
   if (!token) return null;
 
-  const supabaseUser = createClient(
+  const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
@@ -18,21 +49,28 @@ async function getUserFromBearer(req: NextRequest) {
     }
   );
 
-  const { data, error } = await supabaseUser.auth.getUser();
+  const { data, error } = await supabase.auth.getUser();
   if (error || !data?.user) return null;
 
-  return { user: data.user, token };
+  return { user: data.user, supabase };
 }
 
-export async function POST(req: NextRequest) {
+export async function GET(req: NextRequest) {
   try {
-    const auth = await getUserFromBearer(req);
-    if (!auth?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    // Auth: cookie o bearer
+    const cookieAuth = await getUserFromCookie(req);
+    const bearerAuth = cookieAuth ? null : await getUserFromBearer(req);
+    const authCtx = cookieAuth || bearerAuth;
 
+    if (!authCtx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const { user } = authCtx;
+
+    // Solo ADMIN/STAFF
     const { data: me } = await supabaseAdmin
       .from("profiles")
       .select("role")
-      .eq("id", auth.user.id)
+      .eq("id", user.id)
       .maybeSingle();
 
     const role = String(me?.role || "").toUpperCase();
@@ -41,17 +79,19 @@ export async function POST(req: NextRequest) {
     }
 
     const base = process.env.NEXT_PUBLIC_SITE_URL || "https://alfra-app.vercel.app";
-    const key = process.env.INTERNAL_STAMPS_SYNC_KEY || "";
 
-    const url = key
-      ? `${base}/api/stamps/fudo-sync?key=${encodeURIComponent(key)}`
-      : `${base}/api/stamps/fudo-sync`;
+    // Si tenés INTERNAL_PUSH_KEY, lo mandamos (por si protegés endpoints internos)
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (process.env.INTERNAL_PUSH_KEY) headers["x-internal-key"] = process.env.INTERNAL_PUSH_KEY;
 
-    const r = await fetch(url, { method: "GET" });
-    const j = await r.json().catch(() => ({}));
+    const r = await fetch(`${base}/api/fudo/sync`, { method: "GET", headers });
+    const j = await r.json().catch(() => null);
 
     if (!r.ok) {
-      return NextResponse.json({ error: j?.error || "Sync error" }, { status: r.status });
+      return NextResponse.json(
+        { error: j?.error || `Sync failed HTTP ${r.status}`, details: j ?? null },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({ ok: true, result: j });
