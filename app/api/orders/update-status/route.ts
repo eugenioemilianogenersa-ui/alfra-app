@@ -3,6 +3,7 @@ import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { applyStamp, revokeStampByRef, getStampConfig } from "@/lib/stampsEngine";
+import { revokeLoyaltyPointsByRef } from "@/lib/loyaltyPointsEngine";
 
 type Estado =
   | "pendiente"
@@ -151,13 +152,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Forbidden (rol)" }, { status: 403 });
     }
 
-    // ✅ STAFF PUEDE CANCELAR (caja). DELIVERY NO.
-    // (antes estaba bloqueado; se eliminó para soportar operación real)
-
-    // Estado actual + data necesaria para sellos (service role)
+    // Estado actual + data necesaria (service role)
     const { data: order, error: orderErr } = await supabaseAdmin
       .from("orders")
-      .select("id, estado, user_id, monto, source")
+      .select("id, estado, user_id, monto, source, external_id, fudo_id")
       .eq("id", id)
       .single();
 
@@ -167,7 +165,7 @@ export async function POST(req: NextRequest) {
 
     const currentEstado = normEstado(order.estado) ?? "pendiente";
 
-    // ✅ Idempotente: si el estado ya es el mismo, OK
+    // Idempotente: si el estado ya es el mismo, OK
     if (currentEstado === nextEstado) {
       return NextResponse.json({ ok: true, orderId: id, estado: nextEstado, noop: true });
     }
@@ -190,7 +188,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // ✅ Anti-rollback SOLO para NO-ADMIN
+    // Anti-rollback SOLO para NO-ADMIN
     if (!isAdmin) {
       const allowed = TRANSICIONES[currentEstado] ?? [];
       if (!allowed.includes(nextEstado)) {
@@ -234,14 +232,44 @@ export async function POST(req: NextRequest) {
       // noop
     }
 
+    // ✅ PUNTOS (APP): si cancela => revocar puntos (idempotente)
+    try {
+      if (nextEstado === "cancelado" && order?.user_id) {
+        const userIdForPoints = String(order.user_id);
+
+        // 1) revocar por sale ref si existe external_id/fudo_id
+        const saleId = String(order.external_id || order.fudo_id || "");
+        if (saleId) {
+          await revokeLoyaltyPointsByRef({
+            userId: userIdForPoints,
+            source: "FUDO",
+            refType: "order_id",
+            refId: `sale:${saleId}`,
+            revokedBy: user.id,
+            revokedReason: "order_cancelled",
+          });
+        }
+
+        // 2) revocar por order.id ref (compat)
+        await revokeLoyaltyPointsByRef({
+          userId: userIdForPoints,
+          source: "FUDO",
+          refType: "order_id",
+          refId: String(id),
+          revokedBy: user.id,
+          revokedReason: "order_cancelled",
+        });
+      }
+    } catch (e) {
+      console.warn("points revoke skipped:", e);
+    }
+
     // ✅ SELLOS (APP)
-    // - si cancela => revocar sello (SILENT, sin push)
-    // - si llega a grant_on_estado => aplicar sello (si user_id existe)
     try {
       const cfg = await getStampConfig().catch(() => null);
 
       if (cfg?.enabled && order?.user_id) {
-        const orderIdRef = String(id); // usamos order.id como ref estable (igual que en fudo/sync)
+        const orderIdRef = String(id);
         const userIdForStamp = String(order.user_id);
         const monto = Number(order.monto ?? 0);
 
@@ -253,7 +281,6 @@ export async function POST(req: NextRequest) {
             revokedBy: user.id,
             revokedReason: "order_cancelled",
           });
-          // SIN push
         } else {
           const grantOn = String(cfg.grant_on_estado || "entregado");
           if (nextEstado === grantOn) {
@@ -265,7 +292,6 @@ export async function POST(req: NextRequest) {
               amount: monto,
             });
 
-            // Push SOLO si aplicó realmente
             if ((a as any)?.applied === true) {
               const base = process.env.NEXT_PUBLIC_SITE_URL || "https://alfra-app.vercel.app";
               await fetch(`${base}/api/push/notify-stamps`, {
@@ -278,7 +304,6 @@ export async function POST(req: NextRequest) {
         }
       }
     } catch (e) {
-      // no rompe update-status
       console.warn("stamps hook skipped:", e);
     }
 

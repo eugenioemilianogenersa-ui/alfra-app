@@ -3,6 +3,11 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getFudoSales, getFudoSaleDetail } from "@/lib/fudoClient";
 import { applyStamp, revokeStampByRef, getStampConfig } from "@/lib/stampsEngine";
 import { requireCronAuthIfPresent } from "@/lib/cronAuth";
+import {
+  applyLoyaltyPointsForFudoSale,
+  applyLoyaltyPointsForOrder,
+  revokeLoyaltyPointsByRef,
+} from "@/lib/loyaltyPointsEngine";
 
 // 🔢 Normalizar teléfono de Fudo a un formato común:
 function normalizePhone(raw?: string | null): string | null {
@@ -94,7 +99,6 @@ async function logSync(params: {
 }
 
 export async function GET(req: Request) {
-  // ✅ Si viene cron_secret, exigimos auth pro (cron_secret + bearer opcional si está seteado)
   const denied = requireCronAuthIfPresent(req);
   if (denied) return denied;
 
@@ -105,8 +109,7 @@ export async function GET(req: Request) {
   let stampCfg: any = null;
   try {
     stampCfg = await getStampConfig();
-  } catch (e) {
-    // si falla config, NO rompemos sync
+  } catch {
     stampCfg = null;
   }
 
@@ -185,7 +188,7 @@ export async function GET(req: Request) {
         const waiterRel = dData?.relationships?.waiter?.data;
         const waiterId: string | null = waiterRel?.id ? String(waiterRel.id) : null;
 
-        // Leer pedido existente (IMPORTANTE: traer delivery_user_id/nombre para NO romper asignaciones)
+        // Leer pedido existente
         const { data: existingOrder } = await supabaseAdmin
           .from("orders")
           .select("id, estado, user_id, delivery_user_id, delivery_nombre")
@@ -232,7 +235,7 @@ export async function GET(req: Request) {
         // Mantener user_id existente si esta corrida no lo encontró
         const finalUserId = userIdForOrder || existingOrder?.user_id || null;
 
-        // Payload de upsert (NO incluir delivery_* acá para no pisar manuales)
+        // Payload de upsert
         const payload: any = {
           cliente_nombre: clienteNombre,
           direccion_entrega: direccionEntrega,
@@ -280,17 +283,16 @@ export async function GET(req: Request) {
           note: `ok phone=${fudoPhoneNormalized ?? "null"} user_id=${finalUserId ?? "null"}`,
         });
 
-        // ✅ SELLOS (AUTO) - otorgar/revocar por estado
+        // ✅ SELLOS (AUTO)
         try {
           const prevEstado = (existingOrder?.estado ?? null) as string | null;
 
           if (finalUserId && prevEstado !== finalEstado && stampCfg?.enabled) {
-            // cancelado => revoke
             if (finalEstado === "cancelado") {
               const r = await revokeStampByRef({
                 source: "FUDO",
                 refType: "order_id",
-                refId: String(upsertedOrder.id), // usamos order.id como referencia estable
+                refId: String(upsertedOrder.id),
                 revokedBy: null,
                 revokedReason: "order_cancelled",
               });
@@ -306,7 +308,6 @@ export async function GET(req: Request) {
               });
             }
 
-            // grant_on_estado => apply (con monto mínimo editable)
             const grantOn = String(stampCfg?.grant_on_estado || "entregado");
             if (finalEstado === grantOn) {
               const a = await applyStamp({
@@ -327,7 +328,6 @@ export async function GET(req: Request) {
                 note: JSON.stringify(a),
               });
 
-              // Push SOLO si se aplicó realmente (no daily_limit, no dup)
               if ((a as any)?.applied === true) {
                 try {
                   const base = process.env.NEXT_PUBLIC_SITE_URL || "https://alfra-app.vercel.app";
@@ -353,6 +353,81 @@ export async function GET(req: Request) {
             sale_id: saleId,
             order_id: upsertedOrder.id,
             action: "ERROR_STAMPS",
+            note: e?.message || "unknown",
+          });
+        }
+
+        // ✅ PUNTOS (AUTO): aplicar/revocar por estado (idempotente)
+        try {
+          const prevEstado = (existingOrder?.estado ?? null) as string | null;
+
+          if (finalUserId && prevEstado !== finalEstado) {
+            if (finalEstado === "cancelado") {
+              // revocar por sale ref
+              const r1 = await revokeLoyaltyPointsByRef({
+                userId: finalUserId,
+                source: "FUDO",
+                refType: "order_id",
+                refId: `sale:${saleId}`,
+                revokedBy: null,
+                revokedReason: "order_cancelled",
+              });
+
+              // revocar por order.id ref (compat)
+              const r2 = await revokeLoyaltyPointsByRef({
+                userId: finalUserId,
+                source: "FUDO",
+                refType: "order_id",
+                refId: String(upsertedOrder.id),
+                revokedBy: null,
+                revokedReason: "order_cancelled",
+              });
+
+              await logSync({
+                sale_id: saleId,
+                order_id: upsertedOrder.id,
+                action: "POINTS_REVOKE_ON_CANCEL",
+                old_estado: prevEstado,
+                new_estado: estadoDesdeFudo,
+                final_estado: finalEstado,
+                note: JSON.stringify({ sale_ref: r1, order_ref: r2 }),
+              });
+            }
+
+            if (finalEstado === "entregado") {
+              // aplicar por sale ref (principal)
+              const a1 = await applyLoyaltyPointsForFudoSale({
+                userId: finalUserId,
+                saleId,
+                amount: Number(monto),
+                estadoFinal: finalEstado,
+                saleType: attrs.saleType ?? null,
+              });
+
+              // aplicar por order.id (compat, no rompe por idempotencia)
+              const a2 = await applyLoyaltyPointsForOrder({
+                userId: finalUserId,
+                orderId: String(upsertedOrder.id),
+                amount: Number(monto),
+                estadoFinal: finalEstado,
+              });
+
+              await logSync({
+                sale_id: saleId,
+                order_id: upsertedOrder.id,
+                action: "POINTS_APPLY_ON_DELIVERED",
+                old_estado: prevEstado,
+                new_estado: estadoDesdeFudo,
+                final_estado: finalEstado,
+                note: JSON.stringify({ sale_ref: a1, order_ref: a2 }),
+              });
+            }
+          }
+        } catch (e: any) {
+          await logSync({
+            sale_id: saleId,
+            order_id: upsertedOrder.id,
+            action: "ERROR_POINTS",
             note: e?.message || "unknown",
           });
         }
@@ -394,7 +469,6 @@ export async function GET(req: Request) {
         }
 
         // AUTO-ASIGNAR DELIVERY (waiter -> delivery_user_id)
-        // ✅ FIX: también actualizar orders.delivery_user_id + orders.delivery_nombre (para que STAFF lo vea)
         if (waiterId) {
           try {
             const { data: waiterMap } = await supabaseAdmin
@@ -410,7 +484,6 @@ export async function GET(req: Request) {
                 ? (existingOrder!.delivery_user_id as string)
                 : (waiterMap.delivery_user_id as string);
 
-              // 1) deliveries upsert
               const { error: upsertDeliveryErr } = await supabaseAdmin
                 .from("deliveries")
                 .upsert(
@@ -438,7 +511,6 @@ export async function GET(req: Request) {
                 });
               }
 
-              // 2) Si NO había delivery en orders, setear delivery_user_id + delivery_nombre
               if (!alreadyHasOrderDelivery) {
                 const { data: prof } = await supabaseAdmin
                   .from("profiles")
@@ -475,7 +547,6 @@ export async function GET(req: Request) {
                     note: `order.delivery_user_id=${targetDeliveryUserId} name=${deliveryNombre}`,
                   });
 
-                  // 3) PUSH al delivery SOLO si fue nueva asignación
                   try {
                     const base = process.env.NEXT_PUBLIC_SITE_URL || "https://alfra-app.vercel.app";
                     const headers: Record<string, string> = { "Content-Type": "application/json" };

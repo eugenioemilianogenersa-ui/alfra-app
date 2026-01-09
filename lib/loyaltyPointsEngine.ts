@@ -2,7 +2,6 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { sendPointsPush } from "./push/sendPointsPush";
 
-
 type LoyaltyConfig = {
   base_uc: number;
   inflation_factor: number;
@@ -63,21 +62,23 @@ async function upsertWalletAdd(userId: string, delta: number) {
   return { ok: true as const, next };
 }
 
-async function insertEarnEvent(params: {
+async function insertEvent(params: {
   userId: string;
   delta: number;
-  amount: number;
+  amount: number | null;
   refType: string;
   refId: string;
   reason: string;
   metadata: any;
+  eventType: "earn" | "revoke" | "manual" | "redeem";
+  source: "FUDO" | "APP" | "MANUAL" | "API";
 }) {
   const { error: evErr } = await supabaseAdmin.from("loyalty_events").insert({
     user_id: params.userId,
     delta: params.delta,
     reason: params.reason,
-    event_type: "earn",
-    source: "FUDO",
+    event_type: params.eventType,
+    source: params.source,
     ref_type: params.refType,
     ref_id: params.refId,
     amount: params.amount,
@@ -95,12 +96,123 @@ async function insertEarnEvent(params: {
   return { ok: false as const, error: msg };
 }
 
+async function getEarnEventByRef(params: {
+  userId: string;
+  source: "FUDO" | "APP";
+  refType: string;
+  refId: string;
+}) {
+  const { data, error } = await supabaseAdmin
+    .from("loyalty_events")
+    .select("id, delta, amount, created_at, reason, metadata")
+    .eq("user_id", params.userId)
+    .eq("source", params.source)
+    .eq("ref_type", params.refType)
+    .eq("ref_id", params.refId)
+    .eq("event_type", "earn")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) return { ok: false as const, error: error.message };
+  if (!data) return { ok: true as const, event: null as any };
+
+  return { ok: true as const, event: data as any };
+}
+
 function pushReasonForFudoEarn() {
-  // Mensaje “humano” para notificación (UI ya mapea, pero el push lo dejamos pro)
   return "Compra en Alfra";
 }
 
-// ✅ (opcional) Se conserva para compatibilidad con tu lógica anterior (orders.id)
+function pushReasonForFudoRevoke() {
+  return "Compra cancelada (reversa)";
+}
+
+/**
+ * ✅ NUEVO: revocar puntos por referencia (reversa contable).
+ * - Busca el earn original (misma ref)
+ * - Inserta evento revoke (delta negativo)
+ * - Actualiza wallet
+ * - Idempotente (si ya revocó => duplicate => no-op)
+ */
+export async function revokeLoyaltyPointsByRef(params: {
+  userId: string;
+  source: "FUDO" | "APP";
+  refType: string;
+  refId: string;
+  revokedBy?: string | null;
+  revokedReason?: string | null;
+}) {
+  // 1) Buscar earn original
+  const earn = await getEarnEventByRef({
+    userId: params.userId,
+    source: params.source,
+    refType: params.refType,
+    refId: params.refId,
+  });
+
+  if (!earn.ok) return { revoked: false, reason: "earn_lookup_error", error: (earn as any).error };
+
+  if (!earn.event) {
+    // No hay earn => nada que revertir
+    return { revoked: false, reason: "no_earn_found" };
+  }
+
+  const earnedDelta = Number(earn.event.delta || 0);
+  if (!Number.isFinite(earnedDelta) || earnedDelta <= 0) {
+    return { revoked: false, reason: "invalid_earn_delta" };
+  }
+
+  const delta = -earnedDelta;
+
+  // 2) Insertar evento revoke (idempotente por unique)
+  const ins = await insertEvent({
+    userId: params.userId,
+    delta,
+    amount: earn.event.amount ?? null,
+    refType: params.refType,
+    refId: params.refId,
+    reason: params.revokedReason || "revoke_on_cancel",
+    eventType: "revoke",
+    source: params.source,
+    metadata: {
+      engine: "loyaltyPointsEngine",
+      action: "revoke",
+      revoked_by: params.revokedBy ?? null,
+      revoked_reason: params.revokedReason ?? null,
+      original_event_id: earn.event.id,
+      original_reason: earn.event.reason ?? null,
+      original_created_at: earn.event.created_at ?? null,
+    },
+  });
+
+  if (!ins.ok) {
+    if ((ins as any).duplicate) return { revoked: false, reason: "duplicate_revoke" };
+    return { revoked: false, reason: "revoke_insert_error", error: (ins as any).error };
+  }
+
+  // 3) Actualizar wallet
+  const w = await upsertWalletAdd(params.userId, delta);
+  if (!w.ok) return { revoked: false, reason: "wallet_upsert_error", error: w.error };
+
+  // 4) Push (solo si revocó realmente)
+  try {
+    if (params.source === "FUDO") {
+      await sendPointsPush({
+        userId: params.userId,
+        delta,
+        reason: pushReasonForFudoRevoke(),
+        url: "/puntos",
+      });
+    }
+  } catch (e) {
+    console.error("revokeLoyaltyPointsByRef: push error:", e);
+  }
+
+  return { revoked: true, delta, next: w.next };
+}
+
+// ✅ Compat: order.id como ref
 export async function applyLoyaltyPointsForOrder(params: {
   userId: string;
   orderId: string; // orders.id
@@ -125,14 +237,15 @@ export async function applyLoyaltyPointsForOrder(params: {
     return { applied: false, reason: "no_points", points: 0, effectiveUC };
   }
 
-  // Idempotencia: (source, ref_type, ref_id) con ref_id = orders.id
-  const ins = await insertEarnEvent({
+  const ins = await insertEvent({
     userId: params.userId,
     delta: points,
     amount,
     refType: "order_id",
     refId: String(params.orderId),
     reason: "earn_from_fudo_order",
+    eventType: "earn",
+    source: "FUDO",
     metadata: {
       engine: "loyaltyPointsEngine",
       ref: "order",
@@ -150,7 +263,7 @@ export async function applyLoyaltyPointsForOrder(params: {
   const w = await upsertWalletAdd(params.userId, points);
   if (!w.ok) return { applied: false, reason: "wallet_upsert_error", error: w.error };
 
-  // ✅ PUSH AUTOMÁTICO (solo si realmente aplicó)
+  // Push SOLO si aplicó realmente
   try {
     await sendPointsPush({
       userId: params.userId,
@@ -159,14 +272,13 @@ export async function applyLoyaltyPointsForOrder(params: {
       url: "/puntos",
     });
   } catch (e) {
-    // no rompemos acreditación por fallo push
     console.error("applyLoyaltyPointsForOrder: push error:", e);
   }
 
   return { applied: true, points, effectiveUC, next: w.next };
 }
 
-// ✅ NUEVO: para TODAS las ventas Fudo usando ref_id = "sale:<saleId>"
+// ✅ Venta Fudo: ref_id = sale:<saleId>
 export async function applyLoyaltyPointsForFudoSale(params: {
   userId: string;
   saleId: string;
@@ -194,13 +306,15 @@ export async function applyLoyaltyPointsForFudoSale(params: {
 
   const refId = `sale:${String(params.saleId)}`;
 
-  const ins = await insertEarnEvent({
+  const ins = await insertEvent({
     userId: params.userId,
     delta: points,
     amount,
     refType: "order_id",
     refId,
     reason: "earn_from_fudo_sale",
+    eventType: "earn",
+    source: "FUDO",
     metadata: {
       engine: "loyaltyPointsEngine",
       ref: "sale",
@@ -219,7 +333,7 @@ export async function applyLoyaltyPointsForFudoSale(params: {
   const w = await upsertWalletAdd(params.userId, points);
   if (!w.ok) return { applied: false, reason: "wallet_upsert_error", error: w.error };
 
-  // ✅ PUSH AUTOMÁTICO (solo si realmente aplicó)
+  // Push SOLO si aplicó realmente
   try {
     await sendPointsPush({
       userId: params.userId,
