@@ -64,6 +64,13 @@ export default function AdminPuntosClient() {
   const [grantOnEstado, setGrantOnEstado] = useState<string>("entregado");
   const [enabled, setEnabled] = useState<boolean>(true);
 
+  // ✅ UI mapping (no toca DB)
+  function prettyReason(raw?: string | null): string {
+    const r = (raw ?? "").trim().toLowerCase();
+    if (r === "earn_from_fudo_sale") return "Compra en Alfra";
+    return raw ?? "-";
+  }
+
   useEffect(() => {
     loadData();
     loadConfig();
@@ -320,11 +327,23 @@ export default function AdminPuntosClient() {
                 {syncSummary.ok ? "Sync correcto" : "Sync finalizó con advertencias"}
               </div>
               <div className="mt-2 grid grid-cols-2 gap-2">
-                <div>Escaneadas: <span className="font-bold">{syncSummary.scanned ?? 0}</span></div>
-                <div>Aplicadas: <span className="font-bold">{syncSummary.applied ?? 0}</span></div>
-                <div>No cerradas: <span className="font-bold">{syncSummary.skipped_not_closed ?? 0}</span></div>
-                <div>Sin teléfono: <span className="font-bold">{syncSummary.skipped_no_phone ?? 0}</span></div>
-                <div>Sin usuario: <span className="font-bold">{syncSummary.skipped_no_user ?? 0}</span></div>
+                <div>
+                  Escaneadas: <span className="font-bold">{syncSummary.scanned ?? 0}</span>
+                </div>
+                <div>
+                  Aplicadas: <span className="font-bold">{syncSummary.applied ?? 0}</span>
+                </div>
+                <div>
+                  No cerradas:{" "}
+                  <span className="font-bold">{syncSummary.skipped_not_closed ?? 0}</span>
+                </div>
+                <div>
+                  Sin teléfono:{" "}
+                  <span className="font-bold">{syncSummary.skipped_no_phone ?? 0}</span>
+                </div>
+                <div>
+                  Sin usuario: <span className="font-bold">{syncSummary.skipped_no_user ?? 0}</span>
+                </div>
               </div>
 
               {/* Detalles opcionales */}
@@ -552,7 +571,7 @@ export default function AdminPuntosClient() {
                               <td className="p-2 text-slate-500 whitespace-nowrap">
                                 {new Date(h.created_at).toLocaleString()}
                               </td>
-                              <td className="p-2 text-slate-800">{h.reason}</td>
+                              <td className="p-2 text-slate-800">{prettyReason(h.reason)}</td>
                               <td className="p-2 text-slate-500 whitespace-nowrap">
                                 {h.metadata?.actor_role ? `${h.metadata.actor_role}` : ""}
                               </td>

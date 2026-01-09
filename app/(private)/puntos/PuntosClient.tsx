@@ -21,6 +21,13 @@ export default function PuntosClient() {
 
   const supabase = createClient();
 
+  // ✅ UI mapping (no toca DB)
+  function prettyReason(raw?: string | null): string {
+    const r = (raw ?? "").trim().toLowerCase();
+    if (r === "earn_from_fudo_sale") return "Compra en Alfra";
+    return raw ?? "-";
+  }
+
   const loadData = async () => {
     try {
       const { points, events } = await getUserWallet();
@@ -88,7 +95,7 @@ export default function PuntosClient() {
                     <td className={`px-2 py-1 font-semibold ${ev.delta > 0 ? "text-emerald-600" : "text-red-600"}`}>
                       {ev.delta > 0 ? `+${ev.delta}` : ev.delta}
                     </td>
-                    <td className="px-2 py-1 text-slate-700">{ev.reason ?? "-"}</td>
+                    <td className="px-2 py-1 text-slate-700">{prettyReason(ev.reason ?? "-")}</td>
                   </tr>
                 ))}
               </tbody>
