@@ -27,6 +27,16 @@ type LoyaltyConfig = {
   updated_at: string;
 };
 
+type SyncSummary = {
+  ok: boolean;
+  scanned?: number;
+  applied?: number;
+  skipped_not_closed?: number;
+  skipped_no_phone?: number;
+  skipped_no_user?: number;
+  error?: string;
+};
+
 export default function AdminPuntosClient() {
   const supabase = createClient();
   const [data, setData] = useState<UserPoints[]>([]);
@@ -39,8 +49,9 @@ export default function AdminPuntosClient() {
 
   // SYNC
   const [syncLoading, setSyncLoading] = useState(false);
-  const [syncResult, setSyncResult] = useState<any>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [syncSummary, setSyncSummary] = useState<SyncSummary | null>(null);
+  const [syncRaw, setSyncRaw] = useState<any>(null); // opcional para details
 
   // CONFIG
   const [cfgLoading, setCfgLoading] = useState(false);
@@ -144,10 +155,26 @@ export default function AdminPuntosClient() {
     await loadData();
   }
 
+  function toSummary(raw: any): SyncSummary {
+    // Normalizamos lo que devuelve /api/loyalty/fudo-sync
+    if (!raw || typeof raw !== "object") return { ok: false, error: "Respuesta inválida" };
+
+    return {
+      ok: Boolean(raw.ok),
+      scanned: Number(raw.scanned ?? 0),
+      applied: Number(raw.applied ?? 0),
+      skipped_not_closed: Number(raw.skipped_not_closed ?? 0),
+      skipped_no_phone: Number(raw.skipped_no_phone ?? 0),
+      skipped_no_user: Number(raw.skipped_no_user ?? 0),
+      error: raw.error ? String(raw.error) : undefined,
+    };
+  }
+
   async function runSync() {
     setSyncLoading(true);
     setSyncError(null);
-    setSyncResult(null);
+    setSyncSummary(null);
+    setSyncRaw(null);
 
     try {
       const token = await getToken();
@@ -165,7 +192,11 @@ export default function AdminPuntosClient() {
         return;
       }
 
-      setSyncResult((json as any)?.result ?? json);
+      const raw = (json as any)?.result ?? json;
+      setSyncRaw(raw);
+      const summary = toSummary(raw);
+      setSyncSummary(summary);
+
       await loadData();
     } finally {
       setSyncLoading(false);
@@ -250,9 +281,10 @@ export default function AdminPuntosClient() {
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
-      <h1 className="text-2xl font-bold text-slate-800">Gestion de Puntos</h1>
+      <h1 className="text-2xl font-bold text-slate-800">Gestión de Puntos</h1>
 
       <div className="grid gap-4 md:grid-cols-2">
+        {/* SYNC */}
         <div className="bg-white rounded-xl shadow border p-4 space-y-3">
           <div className="flex items-center justify-between gap-2">
             <h2 className="font-bold text-slate-800">Sync Puntos (Fudo)</h2>
@@ -266,23 +298,54 @@ export default function AdminPuntosClient() {
           </div>
 
           <p className="text-xs text-slate-500">
-            Trae ventas cerradas de Fudo y aplica puntos automaticamente (idempotente).
+            Trae ventas cerradas de Fudo y aplica puntos automáticamente (idempotente).
           </p>
 
-          {syncError && <p className="text-xs text-red-600">{syncError}</p>}
+          {syncError && (
+            <div className="border border-red-200 bg-red-50 text-red-700 rounded p-3 text-xs">
+              <div className="font-bold">Sync error</div>
+              <div className="mt-1">{syncError}</div>
+            </div>
+          )}
 
-          {syncResult && (
-            <div className="text-xs bg-slate-50 border rounded p-3 overflow-x-auto">
-              <pre className="whitespace-pre-wrap wrap-break-word">
-                {JSON.stringify(syncResult, null, 2)}
-              </pre>
+          {!syncError && syncSummary && (
+            <div
+              className={`rounded p-3 text-xs border ${
+                syncSummary.ok
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                  : "border-amber-200 bg-amber-50 text-amber-700"
+              }`}
+            >
+              <div className="font-bold">
+                {syncSummary.ok ? "Sync correcto" : "Sync finalizó con advertencias"}
+              </div>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <div>Escaneadas: <span className="font-bold">{syncSummary.scanned ?? 0}</span></div>
+                <div>Aplicadas: <span className="font-bold">{syncSummary.applied ?? 0}</span></div>
+                <div>No cerradas: <span className="font-bold">{syncSummary.skipped_not_closed ?? 0}</span></div>
+                <div>Sin teléfono: <span className="font-bold">{syncSummary.skipped_no_phone ?? 0}</span></div>
+                <div>Sin usuario: <span className="font-bold">{syncSummary.skipped_no_user ?? 0}</span></div>
+              </div>
+
+              {/* Detalles opcionales */}
+              {syncRaw && (
+                <details className="mt-3">
+                  <summary className="cursor-pointer select-none text-xs opacity-80">
+                    Ver detalles técnicos
+                  </summary>
+                  <pre className="mt-2 text-[11px] bg-white/60 border rounded p-2 overflow-x-auto whitespace-pre-wrap wrap-break-word">
+                    {JSON.stringify(syncRaw, null, 2)}
+                  </pre>
+                </details>
+              )}
             </div>
           )}
         </div>
 
+        {/* CONFIG */}
         <div className="bg-white rounded-xl shadow border p-4 space-y-3">
           <div className="flex items-center justify-between gap-2">
-            <h2 className="font-bold text-slate-800">Economia Anti-Inflacion</h2>
+            <h2 className="font-bold text-slate-800">Economía Anti-Inflación</h2>
             <button
               onClick={loadConfig}
               disabled={cfgLoading}
@@ -311,7 +374,7 @@ export default function AdminPuntosClient() {
 
             <div>
               <label className="text-xs font-bold uppercase block mb-1">
-                Factor inflacion (&gt;= 1.00)
+                Factor inflación (&gt;= 1.00)
               </label>
               <input
                 type="number"
@@ -355,12 +418,12 @@ export default function AdminPuntosClient() {
                 disabled={cfgSaving}
                 className="w-full bg-emerald-600 text-white py-2 rounded font-bold hover:bg-emerald-700 disabled:opacity-60"
               >
-                {cfgSaving ? "Guardando..." : "Guardar Configuracion"}
+                {cfgSaving ? "Guardando..." : "Guardar Configuración"}
               </button>
 
               {config?.updated_at && (
                 <p className="text-[11px] text-slate-500 mt-2">
-                  Ultima actualizacion: {new Date(config.updated_at).toLocaleString()}
+                  Última actualización: {new Date(config.updated_at).toLocaleString()}
                 </p>
               )}
             </div>
@@ -382,7 +445,7 @@ export default function AdminPuntosClient() {
               <tr>
                 <th className="p-4">Usuario</th>
                 <th className="p-4 text-right whitespace-nowrap">Saldo Actual</th>
-                <th className="p-4 text-center whitespace-nowrap">Accion</th>
+                <th className="p-4 text-center whitespace-nowrap">Acción</th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -433,7 +496,7 @@ export default function AdminPuntosClient() {
                 onClick={() => setSelectedUser(null)}
                 className="text-slate-400 hover:text-white"
               >
-                X
+                ✕
               </button>
             </div>
 
@@ -469,13 +532,13 @@ export default function AdminPuntosClient() {
                   type="submit"
                   className="w-full bg-emerald-600 text-white py-2 rounded font-bold hover:bg-emerald-700 transition"
                 >
-                  Confirmar Transaccion
+                  Confirmar Transacción
                 </button>
               </form>
 
               <div>
                 <h4 className="text-xs font-bold text-slate-500 uppercase mb-2">
-                  Ultimos 10 Movimientos
+                  Últimos 10 Movimientos
                 </h4>
                 <div className="bg-slate-50 rounded-lg border overflow-hidden">
                   {userHistory.length === 0 ? (
