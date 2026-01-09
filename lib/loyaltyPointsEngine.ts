@@ -1,5 +1,7 @@
 // lib/loyaltyPointsEngine.ts
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { sendPointsPush } from "./push/sendPointsPush";
+
 
 type LoyaltyConfig = {
   base_uc: number;
@@ -93,8 +95,12 @@ async function insertEarnEvent(params: {
   return { ok: false as const, error: msg };
 }
 
+function pushReasonForFudoEarn() {
+  // Mensaje “humano” para notificación (UI ya mapea, pero el push lo dejamos pro)
+  return "Compra en Alfra";
+}
+
 // ✅ (opcional) Se conserva para compatibilidad con tu lógica anterior (orders.id)
-// Ya NO lo vamos a llamar desde fudo/sync en el “cambio mortal”.
 export async function applyLoyaltyPointsForOrder(params: {
   userId: string;
   orderId: string; // orders.id
@@ -144,11 +150,23 @@ export async function applyLoyaltyPointsForOrder(params: {
   const w = await upsertWalletAdd(params.userId, points);
   if (!w.ok) return { applied: false, reason: "wallet_upsert_error", error: w.error };
 
+  // ✅ PUSH AUTOMÁTICO (solo si realmente aplicó)
+  try {
+    await sendPointsPush({
+      userId: params.userId,
+      delta: points,
+      reason: pushReasonForFudoEarn(),
+      url: "/puntos",
+    });
+  } catch (e) {
+    // no rompemos acreditación por fallo push
+    console.error("applyLoyaltyPointsForOrder: push error:", e);
+  }
+
   return { applied: true, points, effectiveUC, next: w.next };
 }
 
-// ✅ NUEVO: para TODAS las ventas Fudo (mesa/mostrador/otros) usando ref_id = "sale:<saleId>"
-// Esto copia el patrón real que ya tenés en stamps_ledger.
+// ✅ NUEVO: para TODAS las ventas Fudo usando ref_id = "sale:<saleId>"
 export async function applyLoyaltyPointsForFudoSale(params: {
   userId: string;
   saleId: string;
@@ -174,10 +192,8 @@ export async function applyLoyaltyPointsForFudoSale(params: {
     return { applied: false, reason: "no_points", points: 0, effectiveUC };
   }
 
-  // ✅ Igual que sellos: ref_id = sale:<id>
   const refId = `sale:${String(params.saleId)}`;
 
-  // Mantengo ref_type = order_id para que sea consistente con tu stamps_ledger (que hoy lo usa así)
   const ins = await insertEarnEvent({
     userId: params.userId,
     delta: points,
@@ -202,6 +218,18 @@ export async function applyLoyaltyPointsForFudoSale(params: {
 
   const w = await upsertWalletAdd(params.userId, points);
   if (!w.ok) return { applied: false, reason: "wallet_upsert_error", error: w.error };
+
+  // ✅ PUSH AUTOMÁTICO (solo si realmente aplicó)
+  try {
+    await sendPointsPush({
+      userId: params.userId,
+      delta: points,
+      reason: pushReasonForFudoEarn(),
+      url: "/puntos",
+    });
+  } catch (e) {
+    console.error("applyLoyaltyPointsForFudoSale: push error:", e);
+  }
 
   return { applied: true, points, effectiveUC, next: w.next, refId };
 }
