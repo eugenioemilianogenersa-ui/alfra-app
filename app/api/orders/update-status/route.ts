@@ -165,7 +165,7 @@ export async function POST(req: NextRequest) {
 
     const currentEstado = normEstado(order.estado) ?? "pendiente";
 
-    // Idempotente: si el estado ya es el mismo, OK
+    // Idempotente
     if (currentEstado === nextEstado) {
       return NextResponse.json({ ok: true, orderId: id, estado: nextEstado, noop: true });
     }
@@ -232,13 +232,12 @@ export async function POST(req: NextRequest) {
       // noop
     }
 
-    // ✅ PUNTOS (APP): si cancela => revocar puntos (idempotente)
+    // ✅ PUNTOS: al cancelar, revocar SOLO por sale:<id> (evita duplicar)
     try {
       if (nextEstado === "cancelado" && order?.user_id) {
         const userIdForPoints = String(order.user_id);
-
-        // 1) revocar por sale ref si existe external_id/fudo_id
         const saleId = String(order.external_id || order.fudo_id || "");
+
         if (saleId) {
           await revokeLoyaltyPointsByRef({
             userId: userIdForPoints,
@@ -249,22 +248,12 @@ export async function POST(req: NextRequest) {
             revokedReason: "order_cancelled",
           });
         }
-
-        // 2) revocar por order.id ref (compat)
-        await revokeLoyaltyPointsByRef({
-          userId: userIdForPoints,
-          source: "FUDO",
-          refType: "order_id",
-          refId: String(id),
-          revokedBy: user.id,
-          revokedReason: "order_cancelled",
-        });
       }
     } catch (e) {
       console.warn("points revoke skipped:", e);
     }
 
-    // ✅ SELLOS (APP)
+    // ✅ SELLOS (APP) (igual que tenías)
     try {
       const cfg = await getStampConfig().catch(() => null);
 

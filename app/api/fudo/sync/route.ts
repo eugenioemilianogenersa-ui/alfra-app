@@ -3,11 +3,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getFudoSales, getFudoSaleDetail } from "@/lib/fudoClient";
 import { applyStamp, revokeStampByRef, getStampConfig } from "@/lib/stampsEngine";
 import { requireCronAuthIfPresent } from "@/lib/cronAuth";
-import {
-  applyLoyaltyPointsForFudoSale,
-  applyLoyaltyPointsForOrder,
-  revokeLoyaltyPointsByRef,
-} from "@/lib/loyaltyPointsEngine";
+import { applyLoyaltyPointsForFudoSale, revokeLoyaltyPointsByRef } from "@/lib/loyaltyPointsEngine";
 
 // 🔢 Normalizar teléfono de Fudo a un formato común:
 function normalizePhone(raw?: string | null): string | null {
@@ -99,6 +95,7 @@ async function logSync(params: {
 }
 
 export async function GET(req: Request) {
+  // ✅ Si viene cron_secret, exigimos auth pro
   const denied = requireCronAuthIfPresent(req);
   if (denied) return denied;
 
@@ -109,7 +106,7 @@ export async function GET(req: Request) {
   let stampCfg: any = null;
   try {
     stampCfg = await getStampConfig();
-  } catch {
+  } catch (e) {
     stampCfg = null;
   }
 
@@ -156,7 +153,7 @@ export async function GET(req: Request) {
         const dAttrs = dData?.attributes || {};
         const included = detail?.included || [];
 
-        // Cliente (anonymous + Customer incluido)
+        // Cliente
         const anon = dAttrs.anonymousCustomer || null;
         const customerIncluded = included.find((i: any) => i.type === "Customer");
 
@@ -178,7 +175,7 @@ export async function GET(req: Request) {
         // Estado según Fudo
         const estadoDesdeFudo = mapSaleStateToEstado(dAttrs.saleState);
 
-        // Teléfono del cliente Fudo (anonymous o Customer)
+        // Teléfono del cliente Fudo
         const fudoPhoneRaw: string | null =
           anon?.phone || customerIncluded?.attributes?.phone || null;
 
@@ -188,7 +185,7 @@ export async function GET(req: Request) {
         const waiterRel = dData?.relationships?.waiter?.data;
         const waiterId: string | null = waiterRel?.id ? String(waiterRel.id) : null;
 
-        // Leer pedido existente
+        // Leer pedido existente (para no romper delivery manual)
         const { data: existingOrder } = await supabaseAdmin
           .from("orders")
           .select("id, estado, user_id, delivery_user_id, delivery_nombre")
@@ -235,7 +232,7 @@ export async function GET(req: Request) {
         // Mantener user_id existente si esta corrida no lo encontró
         const finalUserId = userIdForOrder || existingOrder?.user_id || null;
 
-        // Payload de upsert
+        // Payload de upsert (NO incluir delivery_* acá)
         const payload: any = {
           cliente_nombre: clienteNombre,
           direccion_entrega: direccionEntrega,
@@ -328,6 +325,7 @@ export async function GET(req: Request) {
                 note: JSON.stringify(a),
               });
 
+              // Push SOLO si se aplicó realmente
               if ((a as any)?.applied === true) {
                 try {
                   const base = process.env.NEXT_PUBLIC_SITE_URL || "https://alfra-app.vercel.app";
@@ -357,28 +355,17 @@ export async function GET(req: Request) {
           });
         }
 
-        // ✅ PUNTOS (AUTO): aplicar/revocar por estado (idempotente)
+        // ✅ PUNTOS (AUTO) – CANONICAL REF: sale:<saleId> (evita duplicados)
         try {
           const prevEstado = (existingOrder?.estado ?? null) as string | null;
 
           if (finalUserId && prevEstado !== finalEstado) {
             if (finalEstado === "cancelado") {
-              // revocar por sale ref
-              const r1 = await revokeLoyaltyPointsByRef({
+              const r = await revokeLoyaltyPointsByRef({
                 userId: finalUserId,
                 source: "FUDO",
                 refType: "order_id",
                 refId: `sale:${saleId}`,
-                revokedBy: null,
-                revokedReason: "order_cancelled",
-              });
-
-              // revocar por order.id ref (compat)
-              const r2 = await revokeLoyaltyPointsByRef({
-                userId: finalUserId,
-                source: "FUDO",
-                refType: "order_id",
-                refId: String(upsertedOrder.id),
                 revokedBy: null,
                 revokedReason: "order_cancelled",
               });
@@ -390,26 +377,17 @@ export async function GET(req: Request) {
                 old_estado: prevEstado,
                 new_estado: estadoDesdeFudo,
                 final_estado: finalEstado,
-                note: JSON.stringify({ sale_ref: r1, order_ref: r2 }),
+                note: JSON.stringify(r),
               });
             }
 
             if (finalEstado === "entregado") {
-              // aplicar por sale ref (principal)
-              const a1 = await applyLoyaltyPointsForFudoSale({
+              const a = await applyLoyaltyPointsForFudoSale({
                 userId: finalUserId,
                 saleId,
                 amount: Number(monto),
                 estadoFinal: finalEstado,
                 saleType: attrs.saleType ?? null,
-              });
-
-              // aplicar por order.id (compat, no rompe por idempotencia)
-              const a2 = await applyLoyaltyPointsForOrder({
-                userId: finalUserId,
-                orderId: String(upsertedOrder.id),
-                amount: Number(monto),
-                estadoFinal: finalEstado,
               });
 
               await logSync({
@@ -419,7 +397,7 @@ export async function GET(req: Request) {
                 old_estado: prevEstado,
                 new_estado: estadoDesdeFudo,
                 final_estado: finalEstado,
-                note: JSON.stringify({ sale_ref: a1, order_ref: a2 }),
+                note: JSON.stringify(a),
               });
             }
           }
@@ -468,7 +446,7 @@ export async function GET(req: Request) {
           }
         }
 
-        // AUTO-ASIGNAR DELIVERY (waiter -> delivery_user_id)
+        // AUTO-ASIGNAR DELIVERY
         if (waiterId) {
           try {
             const { data: waiterMap } = await supabaseAdmin
