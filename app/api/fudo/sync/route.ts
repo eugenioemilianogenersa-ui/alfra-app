@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getFudoSales, getFudoSaleDetail } from "@/lib/fudoClient";
 import { applyStamp, revokeStampByRef, getStampConfig } from "@/lib/stampsEngine";
+import { requireCronAuthIfPresent } from "@/lib/cronAuth";
 
 // 🔢 Normalizar teléfono de Fudo a un formato común:
 function normalizePhone(raw?: string | null): string | null {
@@ -92,7 +93,11 @@ async function logSync(params: {
   }
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  // ✅ Si viene cron_secret, exigimos auth pro (cron_secret + bearer opcional si está seteado)
+  const denied = requireCronAuthIfPresent(req);
+  if (denied) return denied;
+
   console.log("🔄 Iniciando Sync Fudo -> Supabase...");
   const todayStartIso = getTodayStartIso();
 
@@ -351,7 +356,7 @@ export async function GET() {
             note: e?.message || "unknown",
           });
         }
-  
+
         // PUSH por cambio real (estado de pedido)
         const prevEstado = (existingOrder?.estado ?? null) as string | null;
 

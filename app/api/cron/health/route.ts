@@ -1,15 +1,9 @@
 import { NextResponse } from "next/server";
+import { requireCronAuth } from "@/lib/cronAuth";
 
 export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url);
-  const secret = searchParams.get("cron_secret");
-
-  if (!secret || secret !== process.env.CRON_SECRET) {
-    return NextResponse.json(
-      { ok: false, error: "unauthorized" },
-      { status: 401 }
-    );
-  }
+  const denied = requireCronAuth(req);
+  if (denied) return denied;
 
   return NextResponse.json({
     ok: true,

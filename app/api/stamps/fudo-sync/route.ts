@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getFudoSales, getFudoSaleDetail } from "@/lib/fudoClient";
 import { applyStamp, revokeStampByRef, getStampConfig } from "@/lib/stampsEngine";
+import { requireCronAuthIfPresent } from "@/lib/cronAuth";
 
 function normalizePhone(raw?: string | null): string | null {
   if (!raw) return null;
@@ -50,8 +51,11 @@ async function logSync(params: { sale_id?: string | null; action: string; note?:
 }
 
 export async function GET(req: Request) {
-  // ✅ Si seteás INTERNAL_STAMPS_SYNC_KEY, exigimos key.
-  // Si NO está seteada, queda abierto (modo dev), pero te recomiendo setearla.
+  // ✅ si viene cron_secret => auth pro (cron_secret + bearer opcional)
+  const denied = requireCronAuthIfPresent(req);
+  if (denied) return denied;
+
+  // ✅ modo manual (dev/legacy) se mantiene
   const requiredKey = process.env.INTERNAL_STAMPS_SYNC_KEY;
   if (requiredKey) {
     const key = new URL(req.url).searchParams.get("key") || "";

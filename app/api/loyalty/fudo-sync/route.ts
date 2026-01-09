@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getFudoSales, getFudoSaleDetail } from "@/lib/fudoClient";
 import { applyLoyaltyPointsForFudoSale } from "@/lib/loyaltyPointsEngine";
+import { requireCronAuthIfPresent } from "@/lib/cronAuth";
 
 function normalizePhone(raw?: string | null): string | null {
   if (!raw) return null;
@@ -30,7 +31,10 @@ function mapSaleStateToEstado(saleState?: string | null): string {
   }
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  const denied = requireCronAuthIfPresent(req);
+  if (denied) return denied;
+
   try {
     // lote moderado para no comer 429
     const fudoResp: any = await getFudoSales(80);
