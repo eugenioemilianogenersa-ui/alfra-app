@@ -255,6 +255,93 @@ export async function GET(req: Request) {
           });
         }
 
+        // ✅✅✅ SELLOS: TODAS LAS VENTAS NO-DELIVERY (SALON / MOSTRADOR)
+        // OJO: Delivery sigue abajo con ref=order.id (no rompemos histórico).
+        try {
+          if (attrs.saleType !== "DELIVERY" && stampCfg?.enabled) {
+            const grantOn = String(stampCfg?.grant_on_estado || "entregado");
+            const refId = `sale:${saleId}`; // estable para no-delivery (texto, permitido)
+
+            // cancelado => revocar SIEMPRE (aunque user no esté linkeado)
+            if (estadoDesdeFudo === "cancelado") {
+              const r = await revokeStampByRef({
+                source: "FUDO",
+                refType: "order_id",
+                refId,
+                revokedBy: null,
+                revokedReason: "order_cancelled",
+              });
+
+              await logSync({
+                sale_id: saleId,
+                order_id: null,
+                action: "STAMPS_REVOKE_NON_DELIVERY",
+                new_estado: estadoDesdeFudo,
+                final_estado: estadoDesdeFudo,
+                note: JSON.stringify(r),
+              });
+            }
+
+            // grant_on_estado => aplicar (solo si hay user)
+            if (estadoDesdeFudo === grantOn) {
+              if (!userIdForSale) {
+                await logSync({
+                  sale_id: saleId,
+                  order_id: null,
+                  action: "STAMPS_SKIP_NO_USER_NON_DELIVERY",
+                  new_estado: estadoDesdeFudo,
+                  final_estado: estadoDesdeFudo,
+                  note: `phone=${fudoPhoneNormalized ?? "null"} saleType=${attrs.saleType ?? "null"}`,
+                });
+              } else {
+                const a = await applyStamp({
+                  userId: userIdForSale,
+                  source: "FUDO",
+                  refType: "order_id",
+                  refId,
+                  amount: Number(monto),
+                });
+
+                await logSync({
+                  sale_id: saleId,
+                  order_id: null,
+                  action: "STAMPS_APPLY_NON_DELIVERY",
+                  new_estado: estadoDesdeFudo,
+                  final_estado: estadoDesdeFudo,
+                  note: JSON.stringify(a),
+                });
+
+                // Push SOLO si aplicó realmente
+                if ((a as any)?.applied === true) {
+                  try {
+                    const base = process.env.NEXT_PUBLIC_SITE_URL || "https://alfra-app.vercel.app";
+                    await fetch(`${base}/api/push/notify-stamps`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ userId: userIdForSale }),
+                    });
+                    await logSync({
+                      sale_id: saleId,
+                      order_id: null,
+                      action: "PUSH_STAMPS",
+                      note: "push queued (non-delivery)",
+                    });
+                  } catch {
+                    // no rompe
+                  }
+                }
+              }
+            }
+          }
+        } catch (e: any) {
+          await logSync({
+            sale_id: saleId,
+            order_id: null,
+            action: "ERROR_STAMPS_NON_DELIVERY",
+            note: e?.message || "unknown",
+          });
+        }
+
         // ✅ Desde acá, TODO IGUAL y SOLO DELIVERY (no tocamos sellos/logística)
         if (attrs.saleType !== "DELIVERY") continue;
 
@@ -341,19 +428,16 @@ export async function GET(req: Request) {
           note: `ok phone=${fudoPhoneNormalized ?? "null"} user_id=${finalUserId ?? "null"}`,
         });
 
-        // ✅ SELLOS (AUTO) - FIX: revoca aunque no haya finalUserId
+        // ✅ SELLOS (AUTO) (igual que estaba) -> DELIVERY con ref = order.id
         try {
           const prevEstado = (existingOrder?.estado ?? null) as string | null;
 
-          if (prevEstado !== finalEstado && stampCfg?.enabled) {
-            const refId = String(upsertedOrder.id);
-
-            // 1) Cancelado => REVOKE SIEMPRE (no depende de userId)
+          if (finalUserId && prevEstado !== finalEstado && stampCfg?.enabled) {
             if (finalEstado === "cancelado") {
               const r = await revokeStampByRef({
                 source: "FUDO",
                 refType: "order_id",
-                refId,
+                refId: String(upsertedOrder.id),
                 revokedBy: null,
                 revokedReason: "order_cancelled",
               });
@@ -369,55 +453,42 @@ export async function GET(req: Request) {
               });
             }
 
-            // 2) grant_on_estado => APPLY solo si hay userId
             const grantOn = String(stampCfg?.grant_on_estado || "entregado");
             if (finalEstado === grantOn) {
-              if (!finalUserId) {
-                await logSync({
-                  sale_id: saleId,
-                  order_id: upsertedOrder.id,
-                  action: "STAMPS_SKIP_NO_USER",
-                  old_estado: prevEstado,
-                  new_estado: estadoDesdeFudo,
-                  final_estado: finalEstado,
-                  note: `phone=${fudoPhoneNormalized ?? "null"}`,
-                });
-              } else {
-                const a = await applyStamp({
-                  userId: finalUserId,
-                  source: "FUDO",
-                  refType: "order_id",
-                  refId,
-                  amount: Number(monto),
-                });
+              const a = await applyStamp({
+                userId: finalUserId,
+                source: "FUDO",
+                refType: "order_id",
+                refId: String(upsertedOrder.id),
+                amount: Number(monto),
+              });
 
-                await logSync({
-                  sale_id: saleId,
-                  order_id: upsertedOrder.id,
-                  action: "STAMPS_APPLY",
-                  old_estado: prevEstado,
-                  new_estado: estadoDesdeFudo,
-                  final_estado: finalEstado,
-                  note: JSON.stringify(a),
-                });
+              await logSync({
+                sale_id: saleId,
+                order_id: upsertedOrder.id,
+                action: "STAMPS_APPLY",
+                old_estado: prevEstado,
+                new_estado: estadoDesdeFudo,
+                final_estado: finalEstado,
+                note: JSON.stringify(a),
+              });
 
-                if ((a as any)?.applied === true) {
-                  try {
-                    const base = process.env.NEXT_PUBLIC_SITE_URL || "https://alfra-app.vercel.app";
-                    await fetch(`${base}/api/push/notify-stamps`, {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ userId: finalUserId }),
-                    });
-                    await logSync({
-                      sale_id: saleId,
-                      order_id: upsertedOrder.id,
-                      action: "PUSH_STAMPS",
-                      note: "push queued",
-                    });
-                  } catch {
-                    // no rompe
-                  }
+              if ((a as any)?.applied === true) {
+                try {
+                  const base = process.env.NEXT_PUBLIC_SITE_URL || "https://alfra-app.vercel.app";
+                  await fetch(`${base}/api/push/notify-stamps`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ userId: finalUserId }),
+                  });
+                  await logSync({
+                    sale_id: saleId,
+                    order_id: upsertedOrder.id,
+                    action: "PUSH_STAMPS",
+                    note: "push queued",
+                  });
+                } catch {
+                  // no rompe
                 }
               }
             }
