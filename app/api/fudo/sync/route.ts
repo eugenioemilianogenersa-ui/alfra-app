@@ -341,16 +341,19 @@ export async function GET(req: Request) {
           note: `ok phone=${fudoPhoneNormalized ?? "null"} user_id=${finalUserId ?? "null"}`,
         });
 
-        // ✅ SELLOS (AUTO) (igual que estaba)
+        // ✅ SELLOS (AUTO) - FIX: revoca aunque no haya finalUserId
         try {
           const prevEstado = (existingOrder?.estado ?? null) as string | null;
 
-          if (finalUserId && prevEstado !== finalEstado && stampCfg?.enabled) {
+          if (prevEstado !== finalEstado && stampCfg?.enabled) {
+            const refId = String(upsertedOrder.id);
+
+            // 1) Cancelado => REVOKE SIEMPRE (no depende de userId)
             if (finalEstado === "cancelado") {
               const r = await revokeStampByRef({
                 source: "FUDO",
                 refType: "order_id",
-                refId: String(upsertedOrder.id),
+                refId,
                 revokedBy: null,
                 revokedReason: "order_cancelled",
               });
@@ -366,42 +369,55 @@ export async function GET(req: Request) {
               });
             }
 
+            // 2) grant_on_estado => APPLY solo si hay userId
             const grantOn = String(stampCfg?.grant_on_estado || "entregado");
             if (finalEstado === grantOn) {
-              const a = await applyStamp({
-                userId: finalUserId,
-                source: "FUDO",
-                refType: "order_id",
-                refId: String(upsertedOrder.id),
-                amount: Number(monto),
-              });
+              if (!finalUserId) {
+                await logSync({
+                  sale_id: saleId,
+                  order_id: upsertedOrder.id,
+                  action: "STAMPS_SKIP_NO_USER",
+                  old_estado: prevEstado,
+                  new_estado: estadoDesdeFudo,
+                  final_estado: finalEstado,
+                  note: `phone=${fudoPhoneNormalized ?? "null"}`,
+                });
+              } else {
+                const a = await applyStamp({
+                  userId: finalUserId,
+                  source: "FUDO",
+                  refType: "order_id",
+                  refId,
+                  amount: Number(monto),
+                });
 
-              await logSync({
-                sale_id: saleId,
-                order_id: upsertedOrder.id,
-                action: "STAMPS_APPLY",
-                old_estado: prevEstado,
-                new_estado: estadoDesdeFudo,
-                final_estado: finalEstado,
-                note: JSON.stringify(a),
-              });
+                await logSync({
+                  sale_id: saleId,
+                  order_id: upsertedOrder.id,
+                  action: "STAMPS_APPLY",
+                  old_estado: prevEstado,
+                  new_estado: estadoDesdeFudo,
+                  final_estado: finalEstado,
+                  note: JSON.stringify(a),
+                });
 
-              if ((a as any)?.applied === true) {
-                try {
-                  const base = process.env.NEXT_PUBLIC_SITE_URL || "https://alfra-app.vercel.app";
-                  await fetch(`${base}/api/push/notify-stamps`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ userId: finalUserId }),
-                  });
-                  await logSync({
-                    sale_id: saleId,
-                    order_id: upsertedOrder.id,
-                    action: "PUSH_STAMPS",
-                    note: "push queued",
-                  });
-                } catch {
-                  // no rompe
+                if ((a as any)?.applied === true) {
+                  try {
+                    const base = process.env.NEXT_PUBLIC_SITE_URL || "https://alfra-app.vercel.app";
+                    await fetch(`${base}/api/push/notify-stamps`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ userId: finalUserId }),
+                    });
+                    await logSync({
+                      sale_id: saleId,
+                      order_id: upsertedOrder.id,
+                      action: "PUSH_STAMPS",
+                      note: "push queued",
+                    });
+                  } catch {
+                    // no rompe
+                  }
                 }
               }
             }
