@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabaseClient";
 
 type LookupUser = {
@@ -68,6 +68,10 @@ export default function AdminSellosClient() {
   const [syncing, setSyncing] = useState(false);
   const [syncOut, setSyncOut] = useState<SyncResult | null>(null);
 
+  // ✅ realtime channels
+  const walletChRef = useRef<any>(null);
+  const ledgerChRef = useRef<any>(null);
+
   useEffect(() => {
     (async () => {
       const { data } = await supabase.rpc("get_my_role");
@@ -98,6 +102,113 @@ export default function AdminSellosClient() {
     return data.session?.access_token || null;
   }
 
+  // ✅ Realtime: si hay cliente cargado, actualizar wallet/ledger al instante
+  useEffect(() => {
+    // limpiar canales previos
+    if (walletChRef.current) {
+      supabase.removeChannel(walletChRef.current);
+      walletChRef.current = null;
+    }
+    if (ledgerChRef.current) {
+      supabase.removeChannel(ledgerChRef.current);
+      ledgerChRef.current = null;
+    }
+
+    if (!user?.id) return;
+
+    const userId = user.id;
+
+    // stamps_wallet (current_stamps)
+    walletChRef.current = supabase
+      .channel(`admin:stamps_wallet:${userId}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "stamps_wallet" },
+        (payload) => {
+          const n: any = payload.new;
+          if (String(n?.user_id || "") !== userId) return;
+          const cs = Number(n?.current_stamps ?? 0) || 0;
+          setCurrentStamps(cs);
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "stamps_wallet" },
+        (payload) => {
+          const n: any = payload.new;
+          if (String(n?.user_id || "") !== userId) return;
+          const cs = Number(n?.current_stamps ?? 0) || 0;
+          setCurrentStamps(cs);
+        }
+      )
+      .subscribe();
+
+    // stamps_ledger (historial)
+    ledgerChRef.current = supabase
+      .channel(`admin:stamps_ledger:${userId}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "stamps_ledger" },
+        (payload) => {
+          const n: any = payload.new;
+          if (String(n?.user_id || "") !== userId) return;
+
+          const row: LedgerRow = {
+            id: String(n.id),
+            created_at: String(n.created_at),
+            source: String(n.source) as any,
+            ref_type: String(n.ref_type) as any,
+            ref_id: String(n.ref_id),
+            amount: n.amount == null ? null : Number(n.amount),
+            status: String(n.status) as any,
+            reason: n.reason == null ? null : String(n.reason),
+            revoked_reason: n.revoked_reason == null ? null : String(n.revoked_reason),
+          };
+
+          setLedger((prev) => {
+            // evitar duplicados
+            if (prev.some((x) => x.id === row.id)) return prev;
+            const next = [row, ...prev];
+            return next.slice(0, 25);
+          });
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "stamps_ledger" },
+        (payload) => {
+          const n: any = payload.new;
+          if (String(n?.user_id || "") !== userId) return;
+
+          setLedger((prev) =>
+            prev.map((r) =>
+              r.id === String(n.id)
+                ? {
+                    ...r,
+                    status: String(n.status) as any,
+                    revoked_reason:
+                      n.revoked_reason == null ? null : String(n.revoked_reason),
+                  }
+                : r
+            )
+          );
+        }
+      )
+      .subscribe();
+
+    return () => {
+      if (walletChRef.current) {
+        supabase.removeChannel(walletChRef.current);
+        walletChRef.current = null;
+      }
+      if (ledgerChRef.current) {
+        supabase.removeChannel(ledgerChRef.current);
+        ledgerChRef.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+
   async function runFudoSyncStamps() {
     setErr(null);
     setSyncOut(null);
@@ -124,7 +235,7 @@ export default function AdminSellosClient() {
       const result = (j?.result || null) as SyncResult | null;
       setSyncOut(result);
 
-      // si tenés un cliente cargado en pantalla, refrescamos por si cambió
+      // respaldo (y mantiene tu UX)
       if (user?.id) {
         await lookup();
       }
@@ -233,6 +344,7 @@ export default function AdminSellosClient() {
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j?.error || `HTTP ${r.status}`);
 
+      // respaldo (y mantiene tu UX)
       await lookup();
       setManualAmount("");
       setManualReason("");
@@ -267,6 +379,7 @@ export default function AdminSellosClient() {
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j?.error || `HTTP ${r.status}`);
 
+      // respaldo (y mantiene tu UX)
       await lookup();
     } catch (e: any) {
       setErr(e?.message || "Error");
