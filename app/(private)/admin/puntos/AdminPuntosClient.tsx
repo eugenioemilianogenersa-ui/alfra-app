@@ -1,6 +1,7 @@
+// C:\Dev\alfra-app\app\(private)\admin\puntos\AdminPuntosClient.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabaseClient";
 
 type UserPoints = {
@@ -39,6 +40,7 @@ type SyncSummary = {
 
 export default function AdminPuntosClient() {
   const supabase = createClient();
+
   const [data, setData] = useState<UserPoints[]>([]);
   const [search, setSearch] = useState("");
 
@@ -51,7 +53,7 @@ export default function AdminPuntosClient() {
   const [syncLoading, setSyncLoading] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [syncSummary, setSyncSummary] = useState<SyncSummary | null>(null);
-  const [syncRaw, setSyncRaw] = useState<any>(null); // opcional para details
+  const [syncRaw, setSyncRaw] = useState<any>(null);
 
   // CONFIG
   const [cfgLoading, setCfgLoading] = useState(false);
@@ -64,10 +66,14 @@ export default function AdminPuntosClient() {
   const [grantOnEstado, setGrantOnEstado] = useState<string>("entregado");
   const [enabled, setEnabled] = useState<boolean>(true);
 
+  // ✅ Evitar re-suscribir por re-render
+  const channelRef = useRef<any>(null);
+
   // ✅ UI mapping (no toca DB)
   function prettyReason(raw?: string | null): string {
     const r = (raw ?? "").trim().toLowerCase();
     if (r === "earn_from_fudo_sale") return "Compra en Alfra";
+    if (r === "earn_from_fudo_order") return "Compra en Alfra";
     return raw ?? "-";
   }
 
@@ -81,6 +87,91 @@ export default function AdminPuntosClient() {
     if (selectedUser) loadHistory(selectedUser.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedUser]);
+
+  // ✅ Realtime: puntos en vivo (loyalty_wallets)
+  useEffect(() => {
+    let mounted = true;
+
+    async function setupRealtime() {
+      // si ya existe canal, no duplicar
+      if (channelRef.current) return;
+
+      // Nota: Realtime respeta RLS. Para admin/staff ver todos, necesitás policy SELECT global.
+      const ch = supabase
+        .channel("admin:loyalty_wallets_live")
+        .on(
+          "postgres_changes",
+          { event: "INSERT", schema: "public", table: "loyalty_wallets" },
+          (payload) => {
+            if (!mounted) return;
+            const n: any = payload.new;
+            const userId = String(n?.user_id || "");
+            const pts = Number(n?.points || 0);
+
+            if (!userId) return;
+
+            setData((prev) => {
+              // si ya existe el usuario, actualiza puntos
+              let found = false;
+              const next = prev.map((u) => {
+                if (u.id === userId) {
+                  found = true;
+                  return { ...u, points: pts };
+                }
+                return u;
+              });
+              // si no lo encuentra, no inventamos perfil acá (porque viene de profiles vía endpoint)
+              return next;
+            });
+
+            setSelectedUser((prev) => {
+              if (!prev) return prev;
+              if (prev.id !== userId) return prev;
+              return { ...prev, points: pts };
+            });
+          }
+        )
+        .on(
+          "postgres_changes",
+          { event: "UPDATE", schema: "public", table: "loyalty_wallets" },
+          (payload) => {
+            if (!mounted) return;
+            const n: any = payload.new;
+            const userId = String(n?.user_id || "");
+            const pts = Number(n?.points || 0);
+
+            if (!userId) return;
+
+            setData((prev) =>
+              prev.map((u) => (u.id === userId ? { ...u, points: pts } : u))
+            );
+
+            setSelectedUser((prev) => {
+              if (!prev) return prev;
+              if (prev.id !== userId) return prev;
+              return { ...prev, points: pts };
+            });
+          }
+        )
+        .subscribe((status) => {
+          // opcional: log para debug
+          // console.log("admin:loyalty_wallets_live status:", status);
+        });
+
+      channelRef.current = ch;
+    }
+
+    setupRealtime();
+
+    return () => {
+      mounted = false;
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current);
+        channelRef.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function getToken() {
     const { data } = await supabase.auth.getSession();
@@ -156,6 +247,8 @@ export default function AdminPuntosClient() {
       }),
     });
 
+    // ✅ NO hace falta loadData para “saldo” si Realtime está ok,
+    // pero lo dejamos como respaldo (por si staff no tiene policy aún).
     setSelectedUser(null);
     setAmount("");
     setReason("");
@@ -163,7 +256,6 @@ export default function AdminPuntosClient() {
   }
 
   function toSummary(raw: any): SyncSummary {
-    // Normalizamos lo que devuelve /api/loyalty/fudo-sync
     if (!raw || typeof raw !== "object") return { ok: false, error: "Respuesta inválida" };
 
     return {
@@ -204,6 +296,7 @@ export default function AdminPuntosClient() {
       const summary = toSummary(raw);
       setSyncSummary(summary);
 
+      // respaldo
       await loadData();
     } finally {
       setSyncLoading(false);
@@ -346,7 +439,6 @@ export default function AdminPuntosClient() {
                 </div>
               </div>
 
-              {/* Detalles opcionales */}
               {syncRaw && (
                 <details className="mt-3">
                   <summary className="cursor-pointer select-none text-xs opacity-80">
@@ -510,7 +602,10 @@ export default function AdminPuntosClient() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
           <div className="bg-white rounded-xl w-full max-w-lg md:max-w-2xl shadow-2xl overflow-hidden max-h-[calc(100dvh-2rem)] flex flex-col">
             <div className="bg-slate-900 p-4 text-white flex justify-between items-center shrink-0">
-              <h3 className="font-bold">Ajustar Puntos: {selectedUser.display_name}</h3>
+              <h3 className="font-bold">
+                Ajustar Puntos: {selectedUser.display_name}{" "}
+                <span className="text-amber-300">({selectedUser.points} pts)</span>
+              </h3>
               <button
                 onClick={() => setSelectedUser(null)}
                 className="text-slate-400 hover:text-white"
@@ -561,7 +656,9 @@ export default function AdminPuntosClient() {
                 </h4>
                 <div className="bg-slate-50 rounded-lg border overflow-hidden">
                   {userHistory.length === 0 ? (
-                    <p className="text-center text-xs text-slate-400 py-3">Sin movimientos previos.</p>
+                    <p className="text-center text-xs text-slate-400 py-3">
+                      Sin movimientos previos.
+                    </p>
                   ) : (
                     <div className="overflow-x-auto">
                       <table className="w-full text-xs min-w-[560px] md:min-w-full">
