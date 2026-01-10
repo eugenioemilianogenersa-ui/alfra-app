@@ -106,7 +106,7 @@ export async function GET(req: Request) {
   let stampCfg: any = null;
   try {
     stampCfg = await getStampConfig();
-  } catch (e) {
+  } catch {
     stampCfg = null;
   }
 
@@ -127,12 +127,11 @@ export async function GET(req: Request) {
       const saleId = String(sale.id);
 
       try {
-        // Solo DELIVERY del día
-        if (attrs.saleType !== "DELIVERY") continue;
+        // ✅ Mantenemos filtro por día
         if (!attrs.createdAt) continue;
         if (attrs.createdAt < todayStartIso) continue;
 
-        // Detalle de venta
+        // Detalle de venta (lo necesitamos para estado/telefono)
         let detail: any;
         try {
           detail = await getFudoSaleDetail(saleId);
@@ -181,6 +180,84 @@ export async function GET(req: Request) {
 
         const fudoPhoneNormalized = normalizePhone(fudoPhoneRaw);
 
+        // Vincular con usuario por phone_normalized
+        let userIdForSale: string | null = null;
+        if (fudoPhoneNormalized) {
+          const { data: profileMatch, error: profileErr } = await supabaseAdmin
+            .from("profiles")
+            .select("id, phone_normalized")
+            .eq("phone_normalized", fudoPhoneNormalized)
+            .maybeSingle();
+
+          if (profileErr) {
+            console.error("[FUDO SYNC] Error buscando profile por teléfono:", profileErr.message);
+          } else if (profileMatch?.id) {
+            userIdForSale = profileMatch.id;
+          }
+        }
+
+        // ✅✅✅ PUNTOS: TODAS LAS VENTAS (SALON / MOSTRADOR / DELIVERY)
+        // Reconciliación idempotente: no depende de cambios de estado en DB
+        try {
+          if (userIdForSale) {
+            if (estadoDesdeFudo === "entregado") {
+              const a = await applyLoyaltyPointsForFudoSale({
+                userId: userIdForSale,
+                saleId,
+                amount: Number(monto),
+                estadoFinal: "entregado",
+                saleType: attrs.saleType ?? null,
+              });
+
+              await logSync({
+                sale_id: saleId,
+                order_id: null,
+                action: "POINTS_APPLY_RECONCILE",
+                new_estado: estadoDesdeFudo,
+                final_estado: estadoDesdeFudo,
+                note: JSON.stringify(a),
+              });
+            }
+
+            if (estadoDesdeFudo === "cancelado") {
+              const r = await revokeLoyaltyPointsByRef({
+                userId: userIdForSale,
+                source: "FUDO",
+                refType: "order_id",
+                refId: `sale:${saleId}`,
+                revokedBy: null,
+                revokedReason: "order_cancelled",
+              });
+
+              await logSync({
+                sale_id: saleId,
+                order_id: null,
+                action: "POINTS_REVOKE_RECONCILE",
+                new_estado: estadoDesdeFudo,
+                final_estado: estadoDesdeFudo,
+                note: JSON.stringify(r),
+              });
+            }
+          } else {
+            await logSync({
+              sale_id: saleId,
+              order_id: null,
+              action: "POINTS_SKIP_NO_USER",
+              note: `phone=${fudoPhoneNormalized ?? "null"} saleType=${attrs.saleType ?? "null"}`,
+            });
+          }
+        } catch (e: any) {
+          await logSync({
+            sale_id: saleId,
+            order_id: null,
+            action: "ERROR_POINTS",
+            note: e?.message || "unknown",
+          });
+        }
+
+        // ✅ Desde acá, TODO IGUAL y SOLO DELIVERY (no tocamos sellos/logística)
+        if (attrs.saleType !== "DELIVERY") continue;
+
         // Repartidor Fudo (waiter)
         const waiterRel = dData?.relationships?.waiter?.data;
         const waiterId: string | null = waiterRel?.id ? String(waiterRel.id) : null;
@@ -213,24 +290,8 @@ export async function GET(req: Request) {
           }
         }
 
-        // Vincular con usuario por phone_normalized
-        let userIdForOrder: string | null = null;
-        if (fudoPhoneNormalized) {
-          const { data: profileMatch, error: profileErr } = await supabaseAdmin
-            .from("profiles")
-            .select("id, phone_normalized")
-            .eq("phone_normalized", fudoPhoneNormalized)
-            .maybeSingle();
-
-          if (profileErr) {
-            console.error("[FUDO SYNC] Error buscando profile por teléfono:", profileErr.message);
-          } else if (profileMatch?.id) {
-            userIdForOrder = profileMatch.id;
-          }
-        }
-
         // Mantener user_id existente si esta corrida no lo encontró
-        const finalUserId = userIdForOrder || existingOrder?.user_id || null;
+        const finalUserId = userIdForSale || existingOrder?.user_id || null;
 
         // Payload de upsert (NO incluir delivery_* acá)
         const payload: any = {
@@ -280,7 +341,7 @@ export async function GET(req: Request) {
           note: `ok phone=${fudoPhoneNormalized ?? "null"} user_id=${finalUserId ?? "null"}`,
         });
 
-        // ✅ SELLOS (AUTO)
+        // ✅ SELLOS (AUTO) (igual que estaba)
         try {
           const prevEstado = (existingOrder?.estado ?? null) as string | null;
 
@@ -325,7 +386,6 @@ export async function GET(req: Request) {
                 note: JSON.stringify(a),
               });
 
-              // Push SOLO si se aplicó realmente
               if ((a as any)?.applied === true) {
                 try {
                   const base = process.env.NEXT_PUBLIC_SITE_URL || "https://alfra-app.vercel.app";
@@ -351,61 +411,6 @@ export async function GET(req: Request) {
             sale_id: saleId,
             order_id: upsertedOrder.id,
             action: "ERROR_STAMPS",
-            note: e?.message || "unknown",
-          });
-        }
-
-        // ✅ PUNTOS (AUTO) – CANONICAL REF: sale:<saleId> (evita duplicados)
-        try {
-          const prevEstado = (existingOrder?.estado ?? null) as string | null;
-
-          if (finalUserId && prevEstado !== finalEstado) {
-            if (finalEstado === "cancelado") {
-              const r = await revokeLoyaltyPointsByRef({
-                userId: finalUserId,
-                source: "FUDO",
-                refType: "order_id",
-                refId: `sale:${saleId}`,
-                revokedBy: null,
-                revokedReason: "order_cancelled",
-              });
-
-              await logSync({
-                sale_id: saleId,
-                order_id: upsertedOrder.id,
-                action: "POINTS_REVOKE_ON_CANCEL",
-                old_estado: prevEstado,
-                new_estado: estadoDesdeFudo,
-                final_estado: finalEstado,
-                note: JSON.stringify(r),
-              });
-            }
-
-            if (finalEstado === "entregado") {
-              const a = await applyLoyaltyPointsForFudoSale({
-                userId: finalUserId,
-                saleId,
-                amount: Number(monto),
-                estadoFinal: finalEstado,
-                saleType: attrs.saleType ?? null,
-              });
-
-              await logSync({
-                sale_id: saleId,
-                order_id: upsertedOrder.id,
-                action: "POINTS_APPLY_ON_DELIVERED",
-                old_estado: prevEstado,
-                new_estado: estadoDesdeFudo,
-                final_estado: finalEstado,
-                note: JSON.stringify(a),
-              });
-            }
-          }
-        } catch (e: any) {
-          await logSync({
-            sale_id: saleId,
-            order_id: upsertedOrder.id,
-            action: "ERROR_POINTS",
             note: e?.message || "unknown",
           });
         }
@@ -446,7 +451,7 @@ export async function GET(req: Request) {
           }
         }
 
-        // AUTO-ASIGNAR DELIVERY
+        // AUTO-ASIGNAR DELIVERY (igual que estaba)
         if (waiterId) {
           try {
             const { data: waiterMap } = await supabaseAdmin
