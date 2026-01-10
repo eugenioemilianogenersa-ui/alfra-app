@@ -1,3 +1,4 @@
+// C:\Dev\alfra-app\app\(private)\dashboard\DashboardClient.tsx
 "use client";
 
 import { useEffect, useRef, useState } from "react";
@@ -40,7 +41,8 @@ function StampGrid({
               <span className="font-bold text-emerald-700">¡Premio desbloqueado!</span>
             ) : (
               <>
-                Llevás <span className="font-bold">{safe}</span>/<span className="font-bold">{total}</span>
+                Llevás <span className="font-bold">{safe}</span>/
+                <span className="font-bold">{total}</span>
               </>
             )}
           </p>
@@ -150,6 +152,7 @@ export default function DashboardClient() {
 
   useEffect(() => {
     let channel: any;
+    let cleanupWake: (() => void) | null = null;
 
     async function loadData() {
       const { data: userRes } = await supabase.auth.getUser();
@@ -159,6 +162,7 @@ export default function DashboardClient() {
         return;
       }
 
+      const userId = user.id; // ✅ evita "user possibly null"
       const isPreviewMode = searchParams.get("preview") === "true";
 
       const { data: roleRpc } = await supabase.rpc("get_my_role");
@@ -183,7 +187,7 @@ export default function DashboardClient() {
         const { data: profile, error: profErr } = await supabase
           .from("profiles")
           .select("display_name")
-          .eq("id", user.id)
+          .eq("id", userId)
           .maybeSingle();
 
         if (!profErr) {
@@ -197,21 +201,27 @@ export default function DashboardClient() {
         setUserName((user.email || "Hola").split("@")[0] || "Hola");
       }
 
-      const { data: wallet } = await supabase
-        .from("loyalty_wallets")
-        .select("points")
-        .eq("user_id", user.id)
-        .maybeSingle();
+      // ✅ refrescar puntos + sellos (por si Realtime se pausó en segundo plano)
+      async function refreshWallets(uid: string) {
+        const { data: wallet } = await supabase
+          .from("loyalty_wallets")
+          .select("points")
+          .eq("user_id", uid)
+          .maybeSingle();
 
-      if (wallet?.points != null) setPoints(Number(wallet.points) || 0);
+        if (wallet?.points != null) setPoints(Number(wallet.points) || 0);
 
-      const { data: sw } = await supabase
-        .from("stamps_wallet")
-        .select("current_stamps")
-        .eq("user_id", user.id)
-        .maybeSingle();
+        const { data: sw } = await supabase
+          .from("stamps_wallet")
+          .select("current_stamps")
+          .eq("user_id", uid)
+          .maybeSingle();
 
-      if (sw?.current_stamps != null) setStamps(Number(sw.current_stamps) || 0);
+        if (sw?.current_stamps != null) setStamps(Number(sw.current_stamps) || 0);
+      }
+
+      // Primera carga
+      await refreshWallets(userId);
 
       const { data: newsData } = await supabase
         .from("news")
@@ -223,6 +233,7 @@ export default function DashboardClient() {
 
       setLoading(false);
 
+      // ✅ Realtime (foreground)
       channel = supabase
         .channel("public:wallets_global")
         .on(
@@ -230,7 +241,7 @@ export default function DashboardClient() {
           { event: "UPDATE", schema: "public", table: "loyalty_wallets" },
           (payload) => {
             const n: any = payload.new;
-            if (n?.user_id === user.id) setPoints(Number(n.points) || 0);
+            if (n?.user_id === userId) setPoints(Number(n.points) || 0);
           }
         )
         .on(
@@ -238,7 +249,7 @@ export default function DashboardClient() {
           { event: "INSERT", schema: "public", table: "stamps_wallet" },
           (payload) => {
             const n: any = payload.new;
-            if (n?.user_id === user.id) setStamps(Number(n.current_stamps) || 0);
+            if (n?.user_id === userId) setStamps(Number(n.current_stamps) || 0);
           }
         )
         .on(
@@ -246,15 +257,31 @@ export default function DashboardClient() {
           { event: "UPDATE", schema: "public", table: "stamps_wallet" },
           (payload) => {
             const n: any = payload.new;
-            if (n?.user_id === user.id) setStamps(Number(n.current_stamps) || 0);
+            if (n?.user_id === userId) setStamps(Number(n.current_stamps) || 0);
           }
         )
         .subscribe();
+
+      // ✅ Wake refresh (cuando volvés de segundo plano)
+      const onWake = () => {
+        if (document.visibilityState === "visible") {
+          refreshWallets(userId).catch(() => {});
+        }
+      };
+
+      window.addEventListener("focus", onWake);
+      document.addEventListener("visibilitychange", onWake);
+
+      cleanupWake = () => {
+        window.removeEventListener("focus", onWake);
+        document.removeEventListener("visibilitychange", onWake);
+      };
     }
 
     loadData();
 
     return () => {
+      if (cleanupWake) cleanupWake();
       if (channel) supabase.removeChannel(channel);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -469,7 +496,11 @@ export default function DashboardClient() {
         </div>
       )}
 
-      <div className={`bg-slate-900 text-white p-6 rounded-b-3xl shadow-lg relative overflow-hidden ${isPreview ? "mt-6" : ""}`}>
+      <div
+        className={`bg-slate-900 text-white p-6 rounded-b-3xl shadow-lg relative overflow-hidden ${
+          isPreview ? "mt-6" : ""
+        }`}
+      >
         <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 rounded-full blur-2xl -mr-10 -mt-10 pointer-events-none"></div>
         <div className="relative z-10">
           <p className="text-slate-400 text-sm mb-1">Bienvenido,</p>
@@ -477,7 +508,9 @@ export default function DashboardClient() {
 
           <div className="flex items-center justify-between bg-white/10 backdrop-blur-md p-4 rounded-xl border border-white/10 transition-all duration-300">
             <div>
-              <p className="text-xs text-emerald-300 font-bold tracking-wider uppercase mb-1">Tus Puntos AlFra</p>
+              <p className="text-xs text-emerald-300 font-bold tracking-wider uppercase mb-1">
+                Tus Puntos AlFra
+              </p>
               <p className="text-3xl font-black text-amber-400 transition-all">{points}</p>
             </div>
 
@@ -502,22 +535,32 @@ export default function DashboardClient() {
 
       <div className="px-4 sm:px-6 mt-6">
         <div className="bg-white p-4 rounded-xl shadow-md border border-slate-100">
-          <h2 className="text-xs font-bold text-slate-400 uppercase mb-3 tracking-wide">Servicios</h2>
+          <h2 className="text-xs font-bold text-slate-400 uppercase mb-3 tracking-wide">
+            Servicios
+          </h2>
           <div className="grid grid-cols-4 gap-2 text-center">
             <Link href="/carta" className="flex flex-col items-center gap-2 group">
-              <div className="w-12 h-12 bg-amber-100 text-amber-600 rounded-2xl flex items-center justify-center text-xl">🍔</div>
+              <div className="w-12 h-12 bg-amber-100 text-amber-600 rounded-2xl flex items-center justify-center text-xl">
+                🍔
+              </div>
               <span className="text-[10px] font-medium text-slate-600">Carta</span>
             </Link>
             <Link href="/choperas" className="flex flex-col items-center gap-2 group">
-              <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center text-xl">🍺</div>
+              <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center text-xl">
+                🍺
+              </div>
               <span className="text-[10px] font-medium text-slate-600">Choperas</span>
             </Link>
             <Link href="/beneficios" className="flex flex-col items-center gap-2 group">
-              <div className="w-12 h-12 bg-purple-100 text-purple-600 rounded-2xl flex items-center justify-center text-xl">💯​</div>
+              <div className="w-12 h-12 bg-purple-100 text-purple-600 rounded-2xl flex items-center justify-center text-xl">
+                💯​
+              </div>
               <span className="text-[10px] font-medium text-slate-600">Beneficios</span>
             </Link>
             <Link href="/mis-pedidos" className="flex flex-col items-center gap-2 group">
-              <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center text-xl">🛵</div>
+              <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center text-xl">
+                🛵
+              </div>
               <span className="text-[10px] font-medium text-slate-600">Seguimiento</span>
             </Link>
           </div>
@@ -536,10 +579,17 @@ export default function DashboardClient() {
             </div>
           ) : (
             news.map((item) => (
-              <div key={item.id} className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+              <div
+                key={item.id}
+                className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm"
+              >
                 {item.image_url && (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={item.image_url} alt={item.title} className="h-32 w-full object-cover" />
+                  <img
+                    src={item.image_url}
+                    alt={item.title}
+                    className="h-32 w-full object-cover"
+                  />
                 )}
                 <div className="p-4">
                   <h3 className="font-bold text-slate-800 mb-1">{item.title}</h3>
@@ -558,14 +608,18 @@ export default function DashboardClient() {
 
           <div className="relative w-full max-w-md bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden max-h-[calc(100dvh-2rem)] flex flex-col">
             <div className="p-4 bg-slate-900 text-white shrink-0">
-              <p className="text-xs font-bold text-emerald-300 uppercase tracking-wider">Voucher AlFra</p>
+              <p className="text-xs font-bold text-emerald-300 uppercase tracking-wider">
+                Voucher AlFra
+              </p>
               <h3 className="text-lg font-black">{voucher.reward_name}</h3>
             </div>
 
             <div className="p-4 space-y-3 overflow-y-auto pb-safe">
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
                 <p className="text-[11px] text-slate-500 font-bold uppercase">Código</p>
-                <p className="text-xl font-black text-slate-900 tracking-wider break-all">{voucher.code}</p>
+                <p className="text-xl font-black text-slate-900 tracking-wider break-all">
+                  {voucher.code}
+                </p>
 
                 <div className="mt-2 w-full overflow-x-auto">
                   <div className="min-w-[320px] flex justify-center">
@@ -581,20 +635,30 @@ export default function DashboardClient() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="bg-white border border-slate-200 rounded-xl p-3">
                   <p className="text-[11px] text-slate-500 font-bold uppercase">Emitido</p>
-                  <p className="text-sm font-bold text-slate-800">{formatDateTime(voucher.issued_at)}</p>
+                  <p className="text-sm font-bold text-slate-800">
+                    {formatDateTime(voucher.issued_at)}
+                  </p>
                 </div>
                 <div className="bg-white border border-slate-200 rounded-xl p-3">
                   <p className="text-[11px] text-slate-500 font-bold uppercase">Vence</p>
-                  <p className="text-sm font-black text-red-700">{formatDateTime(voucher.expires_at)}</p>
+                  <p className="text-sm font-black text-red-700">
+                    {formatDateTime(voucher.expires_at)}
+                  </p>
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-2">
-                <button onClick={handleCopyCode} className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl">
+                <button
+                  onClick={handleCopyCode}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl"
+                >
                   Copiar código
                 </button>
 
-                <button onClick={handleSavePdf} className="bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 rounded-xl">
+                <button
+                  onClick={handleSavePdf}
+                  className="bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 rounded-xl"
+                >
                   Guardar PDF
                 </button>
 
