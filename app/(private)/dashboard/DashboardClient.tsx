@@ -162,7 +162,7 @@ export default function DashboardClient() {
         return;
       }
 
-      const userId = user.id; // ✅ evita "user possibly null"
+      const userId = user.id;
       const isPreviewMode = searchParams.get("preview") === "true";
 
       const { data: roleRpc } = await supabase.rpc("get_my_role");
@@ -201,7 +201,6 @@ export default function DashboardClient() {
         setUserName((user.email || "Hola").split("@")[0] || "Hola");
       }
 
-      // ✅ refrescar puntos + sellos (por si Realtime se pausó en segundo plano)
       async function refreshWallets(uid: string) {
         const { data: wallet } = await supabase
           .from("loyalty_wallets")
@@ -220,7 +219,6 @@ export default function DashboardClient() {
         if (sw?.current_stamps != null) setStamps(Number(sw.current_stamps) || 0);
       }
 
-      // Primera carga
       await refreshWallets(userId);
 
       const { data: newsData } = await supabase
@@ -233,7 +231,6 @@ export default function DashboardClient() {
 
       setLoading(false);
 
-      // ✅ Realtime (foreground)
       channel = supabase
         .channel("public:wallets_global")
         .on(
@@ -262,7 +259,6 @@ export default function DashboardClient() {
         )
         .subscribe();
 
-      // ✅ Wake refresh (cuando volvés de segundo plano)
       const onWake = () => {
         if (document.visibilityState === "visible") {
           refreshWallets(userId).catch(() => {});
@@ -502,11 +498,24 @@ export default function DashboardClient() {
         }`}
       >
         <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 rounded-full blur-2xl -mr-10 -mt-10 pointer-events-none"></div>
-        <div className="relative z-10">
-          <p className="text-slate-400 text-sm mb-1">Bienvenido,</p>
-          <h1 className="text-2xl font-bold capitalize mb-6">{userName} 👋</h1>
 
-          <div className="flex items-center justify-between bg-white/10 backdrop-blur-md p-4 rounded-xl border border-white/10 transition-all duration-300">
+        <div className="relative z-10">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-slate-400 text-sm mb-1">Bienvenido,</p>
+              <h1 className="text-2xl font-bold capitalize mb-2">{userName} 👋</h1>
+            </div>
+
+            {/* ✅ BOTÓN AYUDA (no molesta nunca) */}
+            <Link
+              href="/ayuda"
+              className="shrink-0 bg-white/10 hover:bg-white/15 text-white text-xs font-bold px-4 py-2 rounded-full border border-white/10 transition active:scale-95"
+            >
+              Ayuda
+            </Link>
+          </div>
+
+          <div className="flex items-center justify-between bg-white/10 backdrop-blur-md p-4 rounded-xl border border-white/10 transition-all duration-300 mt-4">
             <div>
               <p className="text-xs text-emerald-300 font-bold tracking-wider uppercase mb-1">
                 Tus Puntos AlFra

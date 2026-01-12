@@ -52,9 +52,30 @@ export default function PrivateLayout({ children }: { children: React.ReactNode 
   const allowedByRole = useMemo(() => {
     return {
       delivery: ["/delivery", "/perfil"],
-      cliente: ["/dashboard", "/carta", "/choperas", "/beneficios", "/voucher", "/mis-pedidos", "/puntos", "/perfil"],
+      cliente: [
+        "/dashboard",
+        "/ayuda", // ✅ NUEVO
+        "/carta",
+        "/choperas",
+        "/beneficios",
+        "/voucher",
+        "/mis-pedidos",
+        "/puntos",
+        "/perfil",
+      ],
       staff: ["/admin", "/admin/usuarios", "/admin/puntos", "/admin/pedidos", "/admin/sellos", "/admin/vouchers"],
-      adminPreview: ["/dashboard", "/carta", "/choperas", "/beneficios", "/voucher", "/mis-pedidos", "/puntos", "/perfil", "/delivery"],
+      adminPreview: [
+        "/dashboard",
+        "/ayuda", // ✅ NUEVO
+        "/carta",
+        "/choperas",
+        "/beneficios",
+        "/voucher",
+        "/mis-pedidos",
+        "/puntos",
+        "/perfil",
+        "/delivery",
+      ],
     } as const;
   }, []);
 
@@ -133,7 +154,6 @@ export default function PrivateLayout({ children }: { children: React.ReactNode 
   const isStaffPanel = userRole === "staff";
   const isAdminPreview = userRole === "admin" && searchParams.get("preview") === "true";
 
-  // ADMIN/STAFF: scroll interno, sidebar fijo/drawer
   if (isAdminPanel || isStaffPanel) {
     return (
       <>
@@ -158,7 +178,6 @@ export default function PrivateLayout({ children }: { children: React.ReactNode 
     );
   }
 
-  // CLIENTE/DELIVERY: body puede scrollear, bottomnav fijo
   return (
     <>
       <PushNotifications />
