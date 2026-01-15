@@ -16,6 +16,89 @@ function formatDateTime(dt: string) {
   }
 }
 
+/** Iconos SVG inline (cero dependencias) */
+function IconMenu(props: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      className={props.className || "w-6 h-6"}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M4 6h16" />
+      <path d="M4 12h16" />
+      <path d="M4 18h16" />
+    </svg>
+  );
+}
+
+function IconBeer(props: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      className={props.className || "w-6 h-6"}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M7 6h8v14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V6Z" />
+      <path d="M15 9h2a2 2 0 0 1 0 4h-2" />
+      <path d="M7 6a3 3 0 0 1 3-3h2a3 3 0 0 1 3 3" />
+      <path d="M9 11v7" />
+      <path d="M12 11v7" />
+    </svg>
+  );
+}
+
+function IconGift(props: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      className={props.className || "w-6 h-6"}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M20 12v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-9" />
+      <path d="M2 7h20v5H2z" />
+      <path d="M12 7v16" />
+      <path d="M12 7H7.5a2.5 2.5 0 1 1 0-5C10 2 12 7 12 7Z" />
+      <path d="M12 7h4.5a2.5 2.5 0 1 0 0-5C14 2 12 7 12 7Z" />
+    </svg>
+  );
+}
+
+function IconBike(props: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      className={props.className || "w-6 h-6"}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M5 18a3 3 0 1 0 6 0a3 3 0 0 0-6 0Z" />
+      <path d="M13 18a3 3 0 1 0 6 0a3 3 0 0 0-6 0Z" />
+      <path d="M11 18l2-7h4l2 4" />
+      <path d="M7 18l3-9h4" />
+      <path d="M9 9h6" />
+    </svg>
+  );
+}
+
 function StampGrid({
   current,
   onRedeem,
@@ -30,7 +113,7 @@ function StampGrid({
   const canRedeem = safe >= total;
 
   return (
-    <div className="bg-white p-4 rounded-xl shadow-md border border-slate-100">
+    <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
       <div className="flex items-start justify-between gap-3 mb-3">
         <div>
           <p className="text-xs font-bold text-slate-400 uppercase tracking-wide">
@@ -38,11 +121,10 @@ function StampGrid({
           </p>
           <p className="text-sm text-slate-700">
             {safe >= total ? (
-              <span className="font-bold text-emerald-700">¡Premio desbloqueado!</span>
+              <span className="font-bold text-emerald-700">Premio desbloqueado</span>
             ) : (
               <>
-                Llevás <span className="font-bold">{safe}</span>/
-                <span className="font-bold">{total}</span>
+                Llevás <span className="font-bold">{safe}</span>/<span className="font-bold">{total}</span>
               </>
             )}
           </p>
@@ -92,7 +174,7 @@ function StampGrid({
           disabled={redeeming}
           className="mt-4 w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold py-3 rounded-xl transition active:scale-[0.99]"
         >
-          {redeeming ? "Canjeando..." : "CANJEAR PREMIO 🎁"}
+          {redeeming ? "Canjeando..." : "CANJEAR PREMIO"}
         </button>
       )}
     </div>
@@ -363,7 +445,7 @@ export default function DashboardClient() {
     if (!voucher?.code) return;
 
     const text =
-      `🎁 Voucher AlFra\n` +
+      `Voucher AlFra\n` +
       `${voucher.reward_name}\n` +
       `Código: ${voucher.code}\n` +
       `Vence: ${formatDateTime(voucher.expires_at)}\n` +
@@ -467,13 +549,13 @@ export default function DashboardClient() {
     const rewardName = (voucher.reward_name || "").trim() || "Premio AlFra";
 
     const text =
-      `Hola AlFra 👋\n` +
+      `Hola AlFra\n` +
       `Quiero canjear mi voucher.\n\n` +
       `Nombre: ${userName}\n` +
       `Premio: ${rewardName}\n` +
       `Código: ${voucher.code}\n` +
       `Vence: ${formatDateTime(voucher.expires_at)}\n\n` +
-      `Gracias!`;
+      `Gracias.`;
 
     return `https://wa.me/5493582405177?text=${encodeURIComponent(text)}`;
   }
@@ -488,7 +570,7 @@ export default function DashboardClient() {
     <div className="bg-slate-50 min-h-dvh pb-24">
       {isPreview && (
         <div className="bg-amber-100 text-amber-800 text-xs text-center py-1 font-bold fixed top-0 w-full z-50 pt-safe">
-          👁️ MODO VISTA PREVIA
+          MODO VISTA PREVIA
         </div>
       )}
 
@@ -503,10 +585,9 @@ export default function DashboardClient() {
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <p className="text-slate-400 text-sm mb-1">Bienvenido,</p>
-              <h1 className="text-2xl font-bold capitalize mb-2">{userName} 👋</h1>
+              <h1 className="text-2xl font-bold capitalize mb-2">{userName}</h1>
             </div>
 
-            {/* ✅ BOTÓN AYUDA (no molesta nunca) */}
             <Link
               href="/ayuda"
               className="shrink-0 bg-white/10 hover:bg-white/15 text-white text-xs font-bold px-4 py-2 rounded-full border border-white/10 transition active:scale-95"
@@ -515,19 +596,22 @@ export default function DashboardClient() {
             </Link>
           </div>
 
-          <div className="flex items-center justify-between bg-white/10 backdrop-blur-md p-4 rounded-xl border border-white/10 transition-all duration-300 mt-4">
+          <div className="flex items-center justify-between bg-white/10 backdrop-blur-md p-4 rounded-2xl border border-white/10 transition-all duration-300 mt-4">
             <div>
               <p className="text-xs text-emerald-300 font-bold tracking-wider uppercase mb-1">
                 Tus Puntos AlFra
               </p>
               <p className="text-3xl font-black text-amber-400 transition-all">{points}</p>
+              <p className="text-[11px] text-slate-200/80 mt-1">
+                Acumulá puntos y canjeá beneficios exclusivos.
+              </p>
             </div>
 
             <Link
               href="/puntos"
-              className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-2 rounded-full transition-transform active:scale-95"
+              className="text-emerald-200 hover:text-emerald-100 text-xs font-bold underline underline-offset-4 decoration-white/20 hover:decoration-white/40 transition active:scale-[0.98]"
             >
-              Ver Historial
+              Ver historial
             </Link>
           </div>
         </div>
@@ -542,40 +626,71 @@ export default function DashboardClient() {
         )}
       </div>
 
+      {/* SERVICIOS PRO */}
       <div className="px-4 sm:px-6 mt-6">
-        <div className="bg-white p-4 rounded-xl shadow-md border border-slate-100">
-          <h2 className="text-xs font-bold text-slate-400 uppercase mb-3 tracking-wide">
-            Servicios
-          </h2>
-          <div className="grid grid-cols-4 gap-2 text-center">
-            <Link href="/carta" className="flex flex-col items-center gap-2 group">
-              <div className="w-12 h-12 bg-amber-100 text-amber-600 rounded-2xl flex items-center justify-center text-xl">
-                🍔
+        <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wide">Servicios</h2>
+            <span className="text-[11px] text-slate-500">Accesos rápidos</span>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <Link
+              href="/carta"
+              className="group rounded-2xl border border-slate-200 bg-slate-50 hover:bg-white hover:border-slate-300 transition p-4 flex items-center gap-3"
+            >
+              <div className="w-11 h-11 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center">
+                <IconMenu className="w-6 h-6" />
               </div>
-              <span className="text-[10px] font-medium text-slate-600">Carta</span>
+              <div className="min-w-0">
+                <div className="text-sm font-extrabold text-slate-900">Carta</div>
+                <div className="text-[11px] text-slate-500">Pedí desde la app</div>
+              </div>
             </Link>
-            <Link href="/choperas" className="flex flex-col items-center gap-2 group">
-              <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center text-xl">
-                🍺
+
+            <Link
+              href="/choperas"
+              className="group rounded-2xl border border-slate-200 bg-slate-50 hover:bg-white hover:border-slate-300 transition p-4 flex items-center gap-3"
+            >
+              <div className="w-11 h-11 rounded-2xl bg-blue-100 text-blue-700 flex items-center justify-center">
+                <IconBeer className="w-6 h-6" />
               </div>
-              <span className="text-[10px] font-medium text-slate-600">Choperas</span>
+              <div className="min-w-0">
+                <div className="text-sm font-extrabold text-slate-900">Choperas</div>
+                <div className="text-[11px] text-slate-500">Eventos y barriles</div>
+              </div>
             </Link>
-            <Link href="/beneficios" className="flex flex-col items-center gap-2 group">
-              <div className="w-12 h-12 bg-purple-100 text-purple-600 rounded-2xl flex items-center justify-center text-xl">
-                💯​
+
+            <Link
+              href="/beneficios"
+              className="group rounded-2xl border border-slate-200 bg-slate-50 hover:bg-white hover:border-slate-300 transition p-4 flex items-center gap-3"
+            >
+              <div className="w-11 h-11 rounded-2xl bg-purple-100 text-purple-700 flex items-center justify-center">
+                <IconGift className="w-6 h-6" />
               </div>
-              <span className="text-[10px] font-medium text-slate-600">Beneficios</span>
+              <div className="min-w-0">
+                <div className="text-sm font-extrabold text-slate-900">Beneficios</div>
+                <div className="text-[11px] text-slate-500">Canjes y promos</div>
+              </div>
             </Link>
-            <Link href="/mis-pedidos" className="flex flex-col items-center gap-2 group">
-              <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center text-xl">
-                🛵
+
+            <Link
+              href="/mis-pedidos"
+              className="group rounded-2xl border border-slate-200 bg-slate-50 hover:bg-white hover:border-slate-300 transition p-4 flex items-center gap-3"
+            >
+              <div className="w-11 h-11 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                <IconBike className="w-6 h-6" />
               </div>
-              <span className="text-[10px] font-medium text-slate-600">Seguimiento</span>
+              <div className="min-w-0">
+                <div className="text-sm font-extrabold text-slate-900">Seguimiento</div>
+                <div className="text-[11px] text-slate-500">Estado del pedido</div>
+              </div>
             </Link>
           </div>
         </div>
       </div>
 
+      {/* NOVEDADES */}
       <div className="px-4 sm:px-6 mt-6">
         <div className="flex justify-between items-center mb-3">
           <h2 className="font-bold text-slate-800">Novedades & Eventos</h2>
@@ -583,22 +698,28 @@ export default function DashboardClient() {
 
         <div className="space-y-4">
           {news.length === 0 ? (
-            <div className="bg-white border border-dashed border-slate-300 rounded-xl p-6 text-center text-slate-400 text-sm">
-              <p>No hay novedades.</p>
+            <div className="bg-white border border-slate-200 rounded-2xl p-5">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-slate-100 text-slate-700 flex items-center justify-center">
+                  <IconGift className="w-6 h-6" />
+                </div>
+                <div>
+                  <p className="text-sm font-extrabold text-slate-900">Próximamente</p>
+                  <p className="text-sm text-slate-600">
+                    Publicaremos novedades y beneficios exclusivos para clientes AlFra.
+                  </p>
+                </div>
+              </div>
             </div>
           ) : (
             news.map((item) => (
               <div
                 key={item.id}
-                className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm"
+                className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm"
               >
                 {item.image_url && (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={item.image_url}
-                    alt={item.title}
-                    className="h-32 w-full object-cover"
-                  />
+                  <img src={item.image_url} alt={item.title} className="h-32 w-full object-cover" />
                 )}
                 <div className="p-4">
                   <h3 className="font-bold text-slate-800 mb-1">{item.title}</h3>
@@ -617,18 +738,14 @@ export default function DashboardClient() {
 
           <div className="relative w-full max-w-md bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden max-h-[calc(100dvh-2rem)] flex flex-col">
             <div className="p-4 bg-slate-900 text-white shrink-0">
-              <p className="text-xs font-bold text-emerald-300 uppercase tracking-wider">
-                Voucher AlFra
-              </p>
+              <p className="text-xs font-bold text-emerald-300 uppercase tracking-wider">Voucher AlFra</p>
               <h3 className="text-lg font-black">{voucher.reward_name}</h3>
             </div>
 
             <div className="p-4 space-y-3 overflow-y-auto pb-safe">
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
                 <p className="text-[11px] text-slate-500 font-bold uppercase">Código</p>
-                <p className="text-xl font-black text-slate-900 tracking-wider break-all">
-                  {voucher.code}
-                </p>
+                <p className="text-xl font-black text-slate-900 tracking-wider break-all">{voucher.code}</p>
 
                 <div className="mt-2 w-full overflow-x-auto">
                   <div className="min-w-[320px] flex justify-center">
@@ -644,15 +761,11 @@ export default function DashboardClient() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="bg-white border border-slate-200 rounded-xl p-3">
                   <p className="text-[11px] text-slate-500 font-bold uppercase">Emitido</p>
-                  <p className="text-sm font-bold text-slate-800">
-                    {formatDateTime(voucher.issued_at)}
-                  </p>
+                  <p className="text-sm font-bold text-slate-800">{formatDateTime(voucher.issued_at)}</p>
                 </div>
                 <div className="bg-white border border-slate-200 rounded-xl p-3">
                   <p className="text-[11px] text-slate-500 font-bold uppercase">Vence</p>
-                  <p className="text-sm font-black text-red-700">
-                    {formatDateTime(voucher.expires_at)}
-                  </p>
+                  <p className="text-sm font-black text-red-700">{formatDateTime(voucher.expires_at)}</p>
                 </div>
               </div>
 
