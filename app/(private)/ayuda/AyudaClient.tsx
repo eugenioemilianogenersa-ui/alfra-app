@@ -94,6 +94,13 @@ export default function AyudaClient() {
             >
               Volver al inicio
             </Link>
+
+            <Link
+              href="/legales"
+              className="bg-white/10 hover:bg-white/15 text-white font-bold px-4 py-3 rounded-xl border border-white/10"
+            >
+              Legales
+            </Link>
           </div>
 
           {openTried && (
