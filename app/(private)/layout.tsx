@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabaseClient";
 import Sidebar from "./Sidebar";
 import BottomNav from "./BottomNav";
 import PushNotifications from "@/components/PushNotifications";
+import ChatbaseRouteGuard from "@/components/ChatbaseRouteGuard";
 
 export default function PrivateLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -54,7 +55,7 @@ export default function PrivateLayout({ children }: { children: React.ReactNode 
       delivery: ["/delivery", "/perfil"],
       cliente: [
         "/dashboard",
-        "/ayuda", // ✅ NUEVO
+        "/ayuda",
         "/carta",
         "/choperas",
         "/beneficios",
@@ -66,7 +67,7 @@ export default function PrivateLayout({ children }: { children: React.ReactNode 
       staff: ["/admin", "/admin/usuarios", "/admin/puntos", "/admin/pedidos", "/admin/sellos", "/admin/vouchers"],
       adminPreview: [
         "/dashboard",
-        "/ayuda", // ✅ NUEVO
+        "/ayuda",
         "/carta",
         "/choperas",
         "/beneficios",
@@ -154,6 +155,7 @@ export default function PrivateLayout({ children }: { children: React.ReactNode 
   const isStaffPanel = userRole === "staff";
   const isAdminPreview = userRole === "admin" && searchParams.get("preview") === "true";
 
+  // ADMIN/STAFF
   if (isAdminPanel || isStaffPanel) {
     return (
       <>
@@ -178,9 +180,13 @@ export default function PrivateLayout({ children }: { children: React.ReactNode 
     );
   }
 
+  // CLIENTE/DELIVERY
   return (
     <>
       <PushNotifications />
+
+      {/* ✅ Controla que Chatbase SOLO se vea en /ayuda */}
+      <ChatbaseRouteGuard />
 
       <div className="min-h-dvh bg-slate-50 relative pb-[calc(5rem+env(safe-area-inset-bottom))]">
         {isAdminPreview && (
