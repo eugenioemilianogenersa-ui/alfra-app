@@ -157,7 +157,11 @@ function StampGrid({
               <img
                 src={filled ? "/stamps/stamp-filled.png" : "/stamps/stamp-empty.png"}
                 alt={filled ? "Sello ganado" : "Sello pendiente"}
-                className="w-12 h-12 sm:w-14 sm:h-14 object-contain"
+                className={
+                  filled
+                    ? "w-12 h-12 sm:w-14 sm:h-14 object-contain"
+                    : "w-12 h-12 sm:w-14 sm:h-14 object-contain opacity-20 grayscale"
+                }
               />
             </div>
           );
@@ -574,17 +578,19 @@ export default function DashboardClient() {
         </div>
       )}
 
+      {/* HEADER PRO: gradiente + borde fino + brillo */}
       <div
-        className={`bg-slate-900 text-white p-6 rounded-b-3xl shadow-lg relative overflow-hidden ${
+        className={`text-white p-6 rounded-b-3xl shadow-lg relative overflow-hidden border border-white/10 ${
           isPreview ? "mt-6" : ""
-        }`}
+        } bg-linear-to-br from-slate-950 via-slate-900 to-slate-800`}
       >
-        <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 rounded-full blur-2xl -mr-10 -mt-10 pointer-events-none"></div>
+        <div className="absolute top-0 right-0 w-40 h-40 bg-emerald-500/10 rounded-full blur-3xl -mr-14 -mt-14 pointer-events-none" />
+        <div className="absolute bottom-0 left-0 w-40 h-40 bg-amber-400/10 rounded-full blur-3xl -ml-14 -mb-14 pointer-events-none" />
 
         <div className="relative z-10">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <p className="text-slate-400 text-sm mb-1">Bienvenido,</p>
+              <p className="text-slate-300/80 text-sm mb-1">Bienvenido,</p>
               <h1 className="text-2xl font-bold capitalize mb-2">{userName}</h1>
             </div>
 
@@ -596,20 +602,22 @@ export default function DashboardClient() {
             </Link>
           </div>
 
-          <div className="flex items-center justify-between bg-white/10 backdrop-blur-md p-4 rounded-2xl border border-white/10 transition-all duration-300 mt-4">
-            <div>
+          <div className="flex items-start justify-between gap-4 bg-white/10 backdrop-blur-md p-4 rounded-2xl border border-white/10 transition-all duration-300 mt-4">
+            <div className="min-w-0">
               <p className="text-xs text-emerald-300 font-bold tracking-wider uppercase mb-1">
                 Tus Puntos AlFra
               </p>
-              <p className="text-3xl font-black text-amber-400 transition-all">{points}</p>
-              <p className="text-[11px] text-slate-200/80 mt-1">
+              <p className="text-4xl leading-none font-black text-amber-300 transition-all">
+                {points}
+              </p>
+              <p className="text-[11px] text-slate-200/80 mt-2">
                 Acumulá puntos y canjeá beneficios exclusivos.
               </p>
             </div>
 
             <Link
               href="/puntos"
-              className="text-emerald-200 hover:text-emerald-100 text-xs font-bold underline underline-offset-4 decoration-white/20 hover:decoration-white/40 transition active:scale-[0.98]"
+              className="shrink-0 text-emerald-200 hover:text-emerald-100 text-xs font-bold underline underline-offset-4 decoration-white/20 hover:decoration-white/40 transition active:scale-[0.98] mt-1"
             >
               Ver historial
             </Link>
