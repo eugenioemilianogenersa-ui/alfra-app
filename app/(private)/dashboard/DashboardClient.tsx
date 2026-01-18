@@ -162,6 +162,8 @@ function StampGrid({
                     ? "w-12 h-12 sm:w-14 sm:h-14 object-contain"
                     : "w-12 h-12 sm:w-14 sm:h-14 object-contain opacity-20 grayscale"
                 }
+                loading="lazy"
+                decoding="async"
               />
             </div>
           );
@@ -195,6 +197,64 @@ function makeBarcodeSvg(code: string) {
     width: 2,
   });
   return svg.outerHTML;
+}
+
+function DashboardSkeleton() {
+  return (
+    <div className="bg-slate-50 min-h-dvh pb-24 animate-pulse">
+      <div className="text-white p-6 rounded-b-3xl shadow-lg relative overflow-hidden border border-white/10 bg-linear-to-br from-slate-950 via-slate-900 to-slate-800">
+        <div className="absolute top-0 right-0 w-40 h-40 bg-emerald-500/10 rounded-full blur-3xl -mr-14 -mt-14 pointer-events-none" />
+        <div className="absolute bottom-0 left-0 w-40 h-40 bg-amber-400/10 rounded-full blur-3xl -ml-14 -mb-14 pointer-events-none" />
+
+        <div className="relative z-10">
+          <div className="flex justify-between items-start gap-3">
+            <div className="space-y-2">
+              <div className="h-3 w-20 bg-white/10 rounded-full" />
+              <div className="h-7 w-36 bg-white/10 rounded-full" />
+            </div>
+            <div className="h-9 w-20 bg-white/10 rounded-full border border-white/5" />
+          </div>
+
+          <div className="mt-6 bg-white/10 h-28 rounded-2xl border border-white/10" />
+        </div>
+      </div>
+
+      <div className="px-4 sm:px-6 -mt-4 relative z-20">
+        <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
+          <div className="flex justify-between mb-4">
+            <div className="space-y-2">
+              <div className="h-3 w-24 bg-slate-200 rounded" />
+              <div className="h-4 w-40 bg-slate-100 rounded" />
+            </div>
+            <div className="h-6 w-16 bg-slate-100 rounded-full" />
+          </div>
+          <div className="grid grid-cols-4 gap-3">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div
+                key={i}
+                className="aspect-square bg-slate-100 rounded-2xl border border-slate-50"
+              />
+            ))}
+          </div>
+          <div className="mt-4 h-3 w-48 bg-slate-100 rounded" />
+        </div>
+      </div>
+
+      <div className="px-4 sm:px-6 mt-6">
+        <div className="bg-white p-4 rounded-2xl border border-slate-200">
+          <div className="flex justify-between mb-3">
+            <div className="h-3 w-20 bg-slate-200 rounded" />
+            <div className="h-3 w-24 bg-slate-100 rounded" />
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="h-20 bg-slate-100 rounded-2xl border border-slate-50" />
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function DashboardClient() {
@@ -565,7 +625,7 @@ export default function DashboardClient() {
   }
 
   if (loading) {
-    return <div className="min-h-dvh flex items-center justify-center bg-slate-50">Cargando...</div>;
+    return <DashboardSkeleton />;
   }
 
   const isPreview = searchParams.get("preview") === "true";
@@ -578,7 +638,6 @@ export default function DashboardClient() {
         </div>
       )}
 
-      {/* HEADER PRO: gradiente + borde fino + brillo */}
       <div
         className={`text-white p-6 rounded-b-3xl shadow-lg relative overflow-hidden border border-white/10 ${
           isPreview ? "mt-6" : ""
@@ -634,7 +693,6 @@ export default function DashboardClient() {
         )}
       </div>
 
-      {/* SERVICIOS PRO */}
       <div className="px-4 sm:px-6 mt-6">
         <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
           <div className="flex items-center justify-between mb-3">
@@ -698,7 +756,6 @@ export default function DashboardClient() {
         </div>
       </div>
 
-      {/* NOVEDADES */}
       <div className="px-4 sm:px-6 mt-6">
         <div className="flex justify-between items-center mb-3">
           <h2 className="font-bold text-slate-800">Novedades & Eventos</h2>
@@ -727,7 +784,13 @@ export default function DashboardClient() {
               >
                 {item.image_url && (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={item.image_url} alt={item.title} className="h-32 w-full object-cover" />
+                  <img
+                    src={item.image_url}
+                    alt={item.title}
+                    className="h-32 w-full object-cover"
+                    loading="lazy"
+                    decoding="async"
+                  />
                 )}
                 <div className="p-4">
                   <h3 className="font-bold text-slate-800 mb-1">{item.title}</h3>
