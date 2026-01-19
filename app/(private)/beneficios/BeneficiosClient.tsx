@@ -52,9 +52,42 @@ function Badge({
       : "bg-slate-50 text-slate-600 border-slate-200";
 
   return (
-    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-extrabold border ${cls}`}>
+    <span
+      className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-extrabold border ${cls}`}
+    >
       {children}
     </span>
+  );
+}
+
+/** ✅ Media responsive (evita “h-44” fijo que recorta distinto en móviles) */
+function ResponsiveMedia({
+  src,
+  alt,
+  aspectRatio = "16/9",
+  fit = "cover",
+}: {
+  src: string;
+  alt: string;
+  aspectRatio?: string; // "16/9" | "4/3" | "1/1" etc
+  fit?: "cover" | "contain";
+}) {
+  return (
+    <div
+      className="relative w-full overflow-hidden bg-slate-100"
+      style={{ aspectRatio }}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={src}
+        alt={alt}
+        className={`absolute inset-0 w-full h-full ${
+          fit === "contain" ? "object-contain" : "object-cover"
+        } object-center`}
+        loading="lazy"
+        decoding="async"
+      />
+    </div>
   );
 }
 
@@ -78,7 +111,6 @@ export default function BeneficiosClient() {
       setLoading(true);
       setErrorMsg(null);
 
-      // 1) puntos actuales
       const { data: userData, error: userErr } = await supabase.auth.getUser();
       if (userErr) {
         setErrorMsg("Error auth: " + userErr.message);
@@ -107,7 +139,6 @@ export default function BeneficiosClient() {
 
       setPoints(wallet?.points ?? 0);
 
-      // 2) beneficios publicados
       const { data: bData, error: bErr } = await supabase
         .from("beneficios")
         .select("*")
@@ -157,7 +188,6 @@ export default function BeneficiosClient() {
         return;
       }
 
-      // refrescar puntos
       const { data: userData } = await supabase.auth.getUser();
       const uid = userData?.user?.id;
       if (uid) {
@@ -179,7 +209,6 @@ export default function BeneficiosClient() {
 
   return (
     <main className="max-w-5xl mx-auto px-4 sm:px-6 pb-24">
-      {/* Header */}
       <header className="mt-2 sm:mt-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -196,7 +225,6 @@ export default function BeneficiosClient() {
         </div>
       </header>
 
-      {/* Saldo */}
       <section className="mt-5 bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
         <div className="p-5 bg-linear-to-br from-slate-950 via-slate-900 to-slate-800 text-white">
           <p className="text-[11px] font-black uppercase tracking-widest text-emerald-300">Tus puntos</p>
@@ -262,7 +290,6 @@ export default function BeneficiosClient() {
         </div>
       )}
 
-      {/* Grid beneficios */}
       <section className="mt-6 grid gap-4 md:grid-cols-2">
         {beneficios.map((b) => {
           const cost = Number(b.points_cost ?? 0);
@@ -281,12 +308,10 @@ export default function BeneficiosClient() {
 
           return (
             <article key={b.id} className="border rounded-2xl bg-white overflow-hidden shadow-sm hover:shadow-md transition">
-              {/* Imagen */}
               {b.image_url ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={b.image_url} alt={b.title} className="h-44 w-full object-cover" />
+                <ResponsiveMedia src={b.image_url} alt={b.title} aspectRatio="16/9" fit="cover" />
               ) : (
-                <div className="h-44 w-full bg-linear-to-br from-slate-100 via-white to-slate-100" />
+                <div className="w-full bg-linear-to-br from-slate-100 via-white to-slate-100" style={{ aspectRatio: "16/9" }} />
               )}
 
               <div className="p-4 space-y-3">
@@ -302,7 +327,6 @@ export default function BeneficiosClient() {
                   </div>
                 </div>
 
-                {/* Costos */}
                 <div className="grid grid-cols-2 gap-2">
                   <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                     <p className="text-[11px] text-slate-500 font-black uppercase tracking-widest">Costo</p>
@@ -315,7 +339,6 @@ export default function BeneficiosClient() {
                   </div>
                 </div>
 
-                {/* Progreso */}
                 {cost > 0 && (
                   <div className="rounded-xl border border-slate-200 bg-white p-3">
                     <div className="flex items-center justify-between text-[11px] text-slate-500">
@@ -345,17 +368,13 @@ export default function BeneficiosClient() {
                   </div>
                 )}
 
-                {/* Detalle (si hay) */}
                 {b.content && (
                   <details className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                    <summary className="cursor-pointer text-sm font-black text-slate-900">
-                      Ver detalle
-                    </summary>
+                    <summary className="cursor-pointer text-sm font-black text-slate-900">Ver detalle</summary>
                     <div className="mt-2 text-sm text-slate-700 whitespace-pre-wrap">{b.content}</div>
                   </details>
                 )}
 
-                {/* CTA */}
                 <div className="pt-1">
                   <button
                     disabled={!canRedeem || redeemingId === b.id}
@@ -372,9 +391,7 @@ export default function BeneficiosClient() {
                   </button>
 
                   {needsCash && (
-                    <p className="mt-2 text-[11px] text-slate-500">
-                      Este beneficio requiere dinero extra además del canje.
-                    </p>
+                    <p className="mt-2 text-[11px] text-slate-500">Este beneficio requiere dinero extra además del canje.</p>
                   )}
                 </div>
               </div>

@@ -1,3 +1,4 @@
+// C:\Dev\alfra-app\app\(private)\choperas\ChoperasClient.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -17,6 +18,33 @@ type ChoperaRow = {
   is_published: boolean;
   published_at: string | null;
 };
+
+function ResponsiveMedia({
+  src,
+  alt,
+  aspectRatio = "16/9",
+  fit = "cover",
+}: {
+  src: string;
+  alt: string;
+  aspectRatio?: string;
+  fit?: "cover" | "contain";
+}) {
+  return (
+    <div className="relative w-full overflow-hidden bg-slate-100" style={{ aspectRatio }}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={src}
+        alt={alt}
+        className={`absolute inset-0 w-full h-full ${
+          fit === "contain" ? "object-contain" : "object-cover"
+        } object-center`}
+        loading="lazy"
+        decoding="async"
+      />
+    </div>
+  );
+}
 
 export default function ChoperasClient() {
   const supabase = createClient();
@@ -52,32 +80,27 @@ export default function ChoperasClient() {
   return (
     <main className="max-w-5xl mx-auto p-6 space-y-4">
       <header className="text-center space-y-1">
-        <h1 className="text-3xl font-bold">Choperas & Eventos 🍻</h1>
-        <p className="opacity-80 text-sm">
-          Pedidos y consultas para choperas o eventos.
-        </p>
+        <h1 className="text-3xl font-bold">Choperas & Eventos</h1>
+        <p className="opacity-80 text-sm">Pedidos y consultas para choperas o eventos.</p>
       </header>
 
       {loading && <p className="text-sm text-slate-500 text-center">Cargando...</p>}
 
       {!loading && errorMsg && (
-        <div className="border border-red-400 bg-red-50 p-4 rounded text-sm">
-          {errorMsg}
-        </div>
+        <div className="border border-red-400 bg-red-50 p-4 rounded text-sm">{errorMsg}</div>
       )}
 
       {!loading && !errorMsg && items.length === 0 && (
-        <p className="text-center text-slate-500 text-sm">
-          Todavía no hay choperas publicadas.
-        </p>
+        <p className="text-center text-slate-500 text-sm">Todavía no hay choperas publicadas.</p>
       )}
 
       <section className="grid gap-4 md:grid-cols-2">
         {items.map((c) => (
           <article key={c.id} className="border rounded-xl bg-white overflow-hidden shadow-sm">
-            {c.image_url && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={c.image_url} alt={c.title} className="h-44 w-full object-cover" />
+            {c.image_url ? (
+              <ResponsiveMedia src={c.image_url} alt={c.title} aspectRatio="16/9" fit="cover" />
+            ) : (
+              <div className="w-full bg-linear-to-br from-slate-100 via-white to-slate-100" style={{ aspectRatio: "16/9" }} />
             )}
 
             <div className="p-4 space-y-2">
