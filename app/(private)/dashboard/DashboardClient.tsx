@@ -28,6 +28,34 @@ function formatInt(n: number) {
   }
 }
 
+/** ✅ Media responsive (evita alturas fijas que recortan distinto en PWA móvil) */
+function ResponsiveMedia({
+  src,
+  alt,
+  aspectRatio = "16/9",
+  fit = "cover",
+}: {
+  src: string;
+  alt: string;
+  aspectRatio?: string; // "16/9" | "21/9" | "1/1" etc
+  fit?: "cover" | "contain";
+}) {
+  return (
+    <div className="relative w-full overflow-hidden bg-slate-100" style={{ aspectRatio }}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={src}
+        alt={alt}
+        className={`absolute inset-0 w-full h-full ${
+          fit === "contain" ? "object-contain" : "object-cover"
+        } object-center`}
+        loading="lazy"
+        decoding="async"
+      />
+    </div>
+  );
+}
+
 /** Iconos SVG inline (cero dependencias) */
 function IconMenu(props: { className?: string }) {
   return (
@@ -212,7 +240,11 @@ function StampGrid({
           top: -10px;
           border-radius: 3px;
           opacity: 0;
-          background: linear-gradient(180deg, rgba(252, 211, 77, 0.95), rgba(16, 185, 129, 0.9));
+          background: linear-gradient(
+            180deg,
+            rgba(252, 211, 77, 0.95),
+            rgba(16, 185, 129, 0.9)
+          );
           animation: alfraConfetti 1200ms ease-out forwards;
         }
         @keyframes alfraConfetti {
@@ -813,8 +845,12 @@ export default function DashboardClient() {
           <div className="mt-4 bg-white/10 backdrop-blur-md p-4 rounded-2xl border border-white/10">
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
-                <p className="text-xs text-emerald-300 font-bold tracking-wider uppercase mb-1">Tus Puntos AlFra</p>
-                <p className="text-4xl leading-none font-black text-amber-300 tabular-nums">{formatInt(pointsUi)}</p>
+                <p className="text-xs text-emerald-300 font-bold tracking-wider uppercase mb-1">
+                  Tus Puntos AlFra
+                </p>
+                <p className="text-4xl leading-none font-black text-amber-300 tabular-nums">
+                  {formatInt(pointsUi)}
+                </p>
 
                 {benefitMeta ? (
                   <div className="mt-3">
@@ -828,7 +864,9 @@ export default function DashboardClient() {
                         style={{ width: `${clamp(benefitMeta.pct * 100, 0, 100)}%` }}
                       />
                     </div>
-                    <div className="mt-1 text-[11px] text-slate-200/75">Objetivo: {formatInt(benefitMeta.cost)} pts</div>
+                    <div className="mt-1 text-[11px] text-slate-200/75">
+                      Objetivo: {formatInt(benefitMeta.cost)} pts
+                    </div>
                   </div>
                 ) : (
                   <p className="text-[11px] text-slate-200/75 mt-3">
@@ -922,7 +960,7 @@ export default function DashboardClient() {
         </div>
       </div>
 
-      {/* NOVEDADES (queda igual por ahora) */}
+      {/* NOVEDADES (✅ responsive) */}
       <div className="px-4 sm:px-6 mt-6">
         <div className="flex justify-between items-center mb-3">
           <h2 className="font-bold text-slate-800">Novedades & Eventos</h2>
@@ -945,20 +983,18 @@ export default function DashboardClient() {
             </div>
           ) : (
             news.map((item) => (
-              <div
-                key={item.id}
-                className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm"
-              >
-                {item.image_url && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
+              <div key={item.id} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+                {item.image_url ? (
+                  <ResponsiveMedia
                     src={item.image_url}
-                    alt={item.title}
-                    className="h-32 w-full object-cover"
-                    loading="lazy"
-                    decoding="async"
+                    alt={String(item.title || "Novedad")}
+                    aspectRatio="16/9"
+                    fit="cover"
                   />
+                ) : (
+                  <div className="w-full bg-linear-to-br from-slate-100 via-white to-slate-100" style={{ aspectRatio: "16/9" }} />
                 )}
+
                 <div className="p-4">
                   <h3 className="font-bold text-slate-800 mb-1">{item.title}</h3>
                   <p className="text-sm text-slate-600 line-clamp-2">{item.content}</p>
@@ -1006,17 +1042,11 @@ export default function DashboardClient() {
               </div>
 
               <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={handleCopyCode}
-                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl"
-                >
+                <button onClick={handleCopyCode} className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl">
                   Copiar código
                 </button>
 
-                <button
-                  onClick={handleSavePdf}
-                  className="bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 rounded-xl"
-                >
+                <button onClick={handleSavePdf} className="bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 rounded-xl">
                   Guardar PDF
                 </button>
 
@@ -1037,10 +1067,7 @@ export default function DashboardClient() {
                 </button>
               </div>
 
-              <button
-                onClick={() => setVoucher(null)}
-                className="w-full bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold py-3 rounded-xl"
-              >
+              <button onClick={() => setVoucher(null)} className="w-full bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold py-3 rounded-xl">
                 Cerrar
               </button>
 
