@@ -986,18 +986,18 @@ export default function DashboardClient() {
               <div key={item.id} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
                 {item.image_url ? (
                   <ResponsiveMedia
-                    src={item.image_url}
-                    alt={String(item.title || "Novedad")}
-                    aspectRatio="16/9"
-                    fit="cover"
-                  />
+  src={item.image_url}
+  alt={String(item.title || "Novedad")}
+  aspectRatio="21/9"
+  fit="contain"
+/>
                 ) : (
                   <div className="w-full bg-linear-to-br from-slate-100 via-white to-slate-100" style={{ aspectRatio: "16/9" }} />
                 )}
 
                 <div className="p-4">
                   <h3 className="font-bold text-slate-800 mb-1">{item.title}</h3>
-                  <p className="text-sm text-slate-600 line-clamp-2">{item.content}</p>
+                  <p className="text-sm text-slate-600 line-clamp-2">{item.summary || item.content}</p>
                 </div>
               </div>
             ))
