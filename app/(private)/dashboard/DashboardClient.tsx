@@ -244,6 +244,14 @@ function animateNumber(from: number, to: number, ms: number, onUpdate: (v: numbe
   requestAnimationFrame(tick);
 }
 
+type NewsRow = {
+  id: string;
+  created_at?: string | null;
+  title?: string | null;
+  content?: string | null;
+  image_url?: string | null;
+};
+
 export default function DashboardClient() {
   const supabase = createClient();
   const router = useRouter();
@@ -253,7 +261,7 @@ export default function DashboardClient() {
   const [userName, setUserName] = useState("Hola");
   const [points, setPoints] = useState(0);
   const [stamps, setStamps] = useState(0);
-  const [news, setNews] = useState<any[]>([]);
+  const [news, setNews] = useState<NewsRow[]>([]);
 
   // UI-only
   const [pointsUi, setPointsUi] = useState(0);
@@ -261,6 +269,9 @@ export default function DashboardClient() {
 
   // Próximo beneficio real (mínimo points_cost publicado/activo)
   const [nextBenefit, setNextBenefit] = useState<null | { title: string; cost: number }>(null);
+
+  // Modal news
+  const [selectedNews, setSelectedNews] = useState<NewsRow | null>(null);
 
   const [redeeming, setRedeeming] = useState(false);
   const [redeemError, setRedeemError] = useState<string | null>(null);
@@ -306,6 +317,18 @@ export default function DashboardClient() {
     animateNumber(pointsUi, next, 450, (v) => setPointsUi(v));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [points]);
+
+  // cerrar modal con ESC
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setSelectedNews(null);
+        setVoucher(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const isPreview = searchParams.get("preview") === "true";
 
@@ -391,7 +414,7 @@ export default function DashboardClient() {
 
       await refreshWallets(userId);
 
-      // ✅ Próximo beneficio real (mínimo costo publicado/activo)
+      // Próximo beneficio real (mínimo costo publicado/activo)
       try {
         const { data: bData } = await supabase
           .from("beneficios")
@@ -418,7 +441,7 @@ export default function DashboardClient() {
         .order("created_at", { ascending: false })
         .limit(2);
 
-      if (newsData) setNews(newsData);
+      if (newsData) setNews(newsData as NewsRow[]);
 
       setLoading(false);
 
@@ -716,9 +739,7 @@ export default function DashboardClient() {
                         style={{ width: `${clamp(benefitMeta.pct * 100, 0, 100)}%` }}
                       />
                     </div>
-                    <div className="mt-1 text-[11px] text-slate-200/75">
-                      Objetivo: {formatInt(benefitMeta.cost)} pts
-                    </div>
+                    <div className="mt-1 text-[11px] text-slate-200/75">Objetivo: {formatInt(benefitMeta.cost)} pts</div>
                   </div>
                 ) : (
                   <p className="text-[11px] text-slate-200/75 mt-3">
@@ -738,7 +759,7 @@ export default function DashboardClient() {
         </div>
       </div>
 
-      {/* SELLOS (solo acá, no duplicados) */}
+      {/* SELLOS (solo acá) */}
       <div className="px-4 sm:px-6 -mt-4 relative z-20">
         <StampGrid current={stamps} onRedeem={handleRedeem} redeeming={redeeming} />
         {redeemError && (
@@ -812,52 +833,174 @@ export default function DashboardClient() {
         </div>
       </div>
 
-      {/* NOVEDADES */}
+      {/* NOVEDADES PRO */}
       <div className="px-4 sm:px-6 mt-6">
         <div className="flex justify-between items-center mb-3">
           <h2 className="font-bold text-slate-800">Novedades & Eventos</h2>
         </div>
 
-        <div className="space-y-4">
-          {news.length === 0 ? (
-            <div className="bg-white border border-slate-200 rounded-2xl p-5">
-              <div className="flex items-start gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-slate-100 text-slate-700 flex items-center justify-center">
-                  <IconGift className="w-6 h-6" />
-                </div>
-                <div>
-                  <p className="text-sm font-extrabold text-slate-900">Novedades en camino</p>
-                  <p className="text-sm text-slate-600">
-                    Si publicás una noticia, acá te mostramos las 2 últimas automáticamente.
-                  </p>
-                </div>
+        {news.length === 0 ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-2xl border border-slate-200 bg-linear-to-br from-amber-50 via-white to-amber-50 p-4 shadow-sm">
+              <p className="text-[10px] font-black tracking-widest text-amber-700 uppercase">Promo</p>
+              <p className="mt-1 text-sm font-extrabold text-slate-900">Recomendado del día</p>
+              <p className="mt-1 text-sm text-slate-600">
+                Entrá a la Carta y elegí algo para sumar puntos.
+              </p>
+              <div className="mt-3 flex gap-2">
+                <Link
+                  href="/carta"
+                  className="text-xs font-bold rounded-xl bg-slate-900 text-white px-3 py-2 hover:bg-slate-800 transition"
+                >
+                  Ver Carta
+                </Link>
+                <Link
+                  href="/puntos"
+                  className="text-xs font-bold rounded-xl bg-white border border-slate-200 text-slate-900 px-3 py-2 hover:bg-slate-50 transition"
+                >
+                  Ver Puntos
+                </Link>
               </div>
             </div>
-          ) : (
-            news.map((item) => (
-              <div
-                key={item.id}
-                className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm"
-              >
-                {item.image_url && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={item.image_url}
-                    alt={item.title}
-                    className="h-32 w-full object-cover"
-                    loading="lazy"
-                    decoding="async"
-                  />
-                )}
-                <div className="p-4">
-                  <h3 className="font-bold text-slate-800 mb-1">{item.title}</h3>
-                  <p className="text-sm text-slate-600 line-clamp-2">{item.content}</p>
-                </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-linear-to-br from-emerald-50 via-white to-emerald-50 p-4 shadow-sm">
+              <p className="text-[10px] font-black tracking-widest text-emerald-700 uppercase">Eventos</p>
+              <p className="mt-1 text-sm font-extrabold text-slate-900">Novedades apenas salgan</p>
+              <p className="mt-1 text-sm text-slate-600">
+                Cuando publiques una noticia, acá se muestran las 2 últimas automáticamente.
+              </p>
+              <div className="mt-3 flex gap-2">
+                <Link
+                  href="/beneficios"
+                  className="text-xs font-bold rounded-xl bg-emerald-600 text-white px-3 py-2 hover:bg-emerald-500 transition"
+                >
+                  Ver Beneficios
+                </Link>
+                <Link
+                  href="/choperas"
+                  className="text-xs font-bold rounded-xl bg-white border border-slate-200 text-slate-900 px-3 py-2 hover:bg-slate-50 transition"
+                >
+                  Choperas
+                </Link>
               </div>
-            ))
-          )}
-        </div>
+            </div>
+          </div>
+        ) : (
+          <div className="grid gap-3">
+            {news.map((item) => (
+              <button
+                key={item.id}
+                onClick={() => setSelectedNews(item)}
+                className="text-left w-full bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition"
+                type="button"
+              >
+                <div className="flex items-stretch">
+                  <div className="w-24 sm:w-28 shrink-0">
+                    {item.image_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={item.image_url}
+                        alt={item.title || "Novedad"}
+                        className="h-full w-full object-cover"
+                        loading="lazy"
+                        decoding="async"
+                      />
+                    ) : (
+                      <div className="h-full w-full bg-linear-to-br from-slate-100 via-white to-slate-100" />
+                    )}
+                  </div>
+
+                  <div className="p-4 min-w-0 flex-1">
+                    <div className="flex items-start justify-between gap-3">
+                      <h3 className="font-extrabold text-slate-900 leading-snug line-clamp-2">
+                        {item.title || "Novedad"}
+                      </h3>
+                      <span className="shrink-0 text-[10px] font-bold text-slate-500 bg-slate-50 border border-slate-200 px-2 py-1 rounded-full">
+                        Ver
+                      </span>
+                    </div>
+
+                    <p className="mt-1 text-sm text-slate-600 line-clamp-2">{item.content || ""}</p>
+
+                    {item.created_at && (
+                      <p className="mt-2 text-[11px] text-slate-500">{formatDateTime(item.created_at)}</p>
+                    )}
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
+
+      {/* MODAL DETALLE NEWS */}
+      {selectedNews && (
+        <div className="fixed inset-0 z-999 bg-black/50 flex items-center justify-center p-4">
+          <div className="absolute inset-0" onClick={() => setSelectedNews(null)} />
+
+          <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden max-h-[calc(100dvh-2rem)] flex flex-col">
+            <div className="p-4 bg-slate-900 text-white shrink-0 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-emerald-300 uppercase tracking-wider">Novedad</p>
+                <h3 className="text-lg font-black leading-snug">{selectedNews.title || "Novedad"}</h3>
+                {selectedNews.created_at && (
+                  <p className="mt-1 text-[11px] text-slate-200/80">{formatDateTime(selectedNews.created_at)}</p>
+                )}
+              </div>
+
+              <button
+                onClick={() => setSelectedNews(null)}
+                className="shrink-0 bg-white/10 hover:bg-white/15 text-white text-xs font-bold px-3 py-2 rounded-xl border border-white/10 transition active:scale-95"
+                type="button"
+              >
+                Cerrar
+              </button>
+            </div>
+
+            <div className="overflow-y-auto">
+              {selectedNews.image_url && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={selectedNews.image_url}
+                  alt={selectedNews.title || "Novedad"}
+                  className="h-44 w-full object-cover"
+                  loading="lazy"
+                  decoding="async"
+                />
+              )}
+
+              <div className="p-4">
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
+                  <p className="text-sm text-slate-800 whitespace-pre-wrap">
+                    {selectedNews.content || "Sin contenido."}
+                  </p>
+                </div>
+
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <Link
+                    href="/carta"
+                    className="text-center bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 rounded-xl"
+                    onClick={() => setSelectedNews(null)}
+                  >
+                    Ver Carta
+                  </Link>
+                  <Link
+                    href="/beneficios"
+                    className="text-center bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl"
+                    onClick={() => setSelectedNews(null)}
+                  >
+                    Ver Beneficios
+                  </Link>
+                </div>
+
+                <p className="mt-3 text-[11px] text-slate-500">
+                  Tip: publicando noticias con imagen, este bloque se ve mucho más pro.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MODAL VOUCHER (sellos) */}
       {voucher && (
