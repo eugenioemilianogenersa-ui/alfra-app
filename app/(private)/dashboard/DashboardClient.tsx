@@ -1,7 +1,7 @@
 // C:\Dev\alfra-app\app\(private)\dashboard\DashboardClient.tsx
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabaseClient";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -388,6 +388,20 @@ function animateNumber(from: number, to: number, ms: number, onUpdate: (v: numbe
   requestAnimationFrame(tick);
 }
 
+type NewsRow = {
+  id: string;
+  created_at: string | null;
+  updated_at: string | null;
+  title: string | null;
+  summary: string | null;
+  content: string | null;
+  image_url: string | null;
+  category: string | null;
+  is_published: boolean | null;
+  published_at: string | null;
+  created_by: string | null;
+};
+
 export default function DashboardClient() {
   const supabase = createClient();
   const router = useRouter();
@@ -397,7 +411,20 @@ export default function DashboardClient() {
   const [userName, setUserName] = useState("Hola");
   const [points, setPoints] = useState(0);
   const [stamps, setStamps] = useState(0);
-  const [news, setNews] = useState<any[]>([]);
+  const [news, setNews] = useState<NewsRow[]>([]);
+
+  // ✅ Modal novedades
+  const [newsModalOpen, setNewsModalOpen] = useState(false);
+  const [selectedNews, setSelectedNews] = useState<NewsRow | null>(null);
+
+  function openNewsModal(item: NewsRow) {
+    setSelectedNews(item);
+    setNewsModalOpen(true);
+  }
+  function closeNewsModal() {
+    setNewsModalOpen(false);
+    setSelectedNews(null);
+  }
 
   // UI-only
   const [pointsUi, setPointsUi] = useState(0);
@@ -556,13 +583,21 @@ export default function DashboardClient() {
         setNextBenefit(null);
       }
 
-      const { data: newsData } = await supabase
-        .from("news")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(2);
+      // ✅ News: solo publicadas, orden por published_at (fallback created_at)
+      try {
+        const { data: newsData } = await supabase
+          .from("news")
+          .select("id,created_at,updated_at,title,summary,content,image_url,category,is_published,published_at,created_by")
+          .eq("is_published", true)
+          .order("published_at", { ascending: false, nullsFirst: false })
+          .order("created_at", { ascending: false })
+          .limit(2);
 
-      if (newsData) setNews(newsData);
+        if (Array.isArray(newsData)) setNews(newsData as NewsRow[]);
+        else setNews([]);
+      } catch {
+        setNews([]);
+      }
 
       setLoading(false);
 
@@ -605,6 +640,17 @@ export default function DashboardClient() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router, searchParams]);
+
+  // ✅ cerrar modal con ESC
+  useEffect(() => {
+    if (!newsModalOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeNewsModal();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newsModalOpen]);
 
   async function handleRedeem() {
     setRedeemError(null);
@@ -809,6 +855,9 @@ export default function DashboardClient() {
       : `Te faltan ${formatInt(benefitMeta.remaining)} pts para canjear: ${benefitMeta.title}`
     : "Sumá puntos y canjeá beneficios reales.";
 
+  const selectedDate =
+    selectedNews?.published_at || selectedNews?.created_at || selectedNews?.updated_at || null;
+
   return (
     <div className="bg-slate-50 min-h-dvh pb-24">
       {isPreview && (
@@ -960,7 +1009,7 @@ export default function DashboardClient() {
         </div>
       </div>
 
-      {/* NOVEDADES (✅ responsive) */}
+      {/* NOVEDADES (cards + modal) */}
       <div className="px-4 sm:px-6 mt-6">
         <div className="flex justify-between items-center mb-3">
           <h2 className="font-bold text-slate-800">Novedades & Eventos</h2>
@@ -983,27 +1032,108 @@ export default function DashboardClient() {
             </div>
           ) : (
             news.map((item) => (
-              <div key={item.id} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => openNewsModal(item)}
+                className="w-full text-left bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm hover:border-slate-300 transition active:scale-[0.99]"
+              >
                 {item.image_url ? (
                   <ResponsiveMedia
-  src={item.image_url}
-  alt={String(item.title || "Novedad")}
-  aspectRatio="21/9"
-  fit="contain"
-/>
+                    src={item.image_url}
+                    alt={String(item.title || "Novedad")}
+                    aspectRatio="21/9"
+                    fit="contain"
+                  />
                 ) : (
-                  <div className="w-full bg-linear-to-br from-slate-100 via-white to-slate-100" style={{ aspectRatio: "16/9" }} />
+                  <div
+                    className="w-full bg-linear-to-br from-slate-100 via-white to-slate-100"
+                    style={{ aspectRatio: "16/9" }}
+                  />
                 )}
 
                 <div className="p-4">
+                  <div className="flex items-center gap-2 mb-1">
+                    {item.category ? (
+                      <span className="text-[10px] font-black uppercase tracking-wide px-2 py-1 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
+                        {item.category}
+                      </span>
+                    ) : null}
+                    {item.published_at || item.created_at ? (
+                      <span className="text-[11px] text-slate-500">
+                        {formatDateTime(String(item.published_at || item.created_at))}
+                      </span>
+                    ) : null}
+                  </div>
+
                   <h3 className="font-bold text-slate-800 mb-1">{item.title}</h3>
                   <p className="text-sm text-slate-600 line-clamp-2">{item.summary || item.content}</p>
+                  <p className="mt-2 text-[11px] font-bold text-emerald-700">Ver detalle</p>
                 </div>
-              </div>
+              </button>
             ))
           )}
         </div>
       </div>
+
+      {/* ✅ MODAL NOVEDAD (solo esto) */}
+      {newsModalOpen && selectedNews && (
+        <div className="fixed inset-0 z-999 bg-black/50 flex items-center justify-center p-4">
+          <div className="absolute inset-0" onClick={closeNewsModal} />
+
+          <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden max-h-[calc(100dvh-2rem)] flex flex-col">
+            <div className="p-4 bg-slate-900 text-white shrink-0">
+              <p className="text-xs font-bold text-emerald-300 uppercase tracking-wider">
+                Novedades AlFra
+              </p>
+              <h3 className="text-lg font-black leading-snug">
+                {selectedNews.title || "Novedad"}
+              </h3>
+
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-200/80">
+                {selectedNews.category ? (
+                  <span className="px-2 py-1 rounded-full bg-white/10 border border-white/10 font-bold uppercase tracking-wide">
+                    {selectedNews.category}
+                  </span>
+                ) : null}
+                {selectedDate ? <span>{formatDateTime(String(selectedDate))}</span> : null}
+              </div>
+            </div>
+
+            <div className="overflow-y-auto pb-safe">
+              {selectedNews.image_url ? (
+                <ResponsiveMedia
+                  src={selectedNews.image_url}
+                  alt={String(selectedNews.title || "Novedad")}
+                  aspectRatio="21/9"
+                  fit="contain"
+                />
+              ) : null}
+
+              <div className="p-4">
+                {selectedNews.summary ? (
+                  <p className="text-sm font-bold text-slate-800">{selectedNews.summary}</p>
+                ) : null}
+
+                {selectedNews.content ? (
+                  <div className="mt-3 text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">
+                    {selectedNews.content}
+                  </div>
+                ) : (
+                  <p className="mt-3 text-sm text-slate-600">Sin contenido.</p>
+                )}
+
+                <button
+                  onClick={closeNewsModal}
+                  className="mt-5 w-full bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold py-3 rounded-xl border border-slate-200"
+                >
+                  Cerrar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MODAL VOUCHER (sellos) */}
       {voucher && (
@@ -1042,11 +1172,17 @@ export default function DashboardClient() {
               </div>
 
               <div className="grid grid-cols-2 gap-2">
-                <button onClick={handleCopyCode} className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl">
+                <button
+                  onClick={handleCopyCode}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl"
+                >
                   Copiar código
                 </button>
 
-                <button onClick={handleSavePdf} className="bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 rounded-xl">
+                <button
+                  onClick={handleSavePdf}
+                  className="bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 rounded-xl"
+                >
                   Guardar PDF
                 </button>
 
@@ -1067,11 +1203,16 @@ export default function DashboardClient() {
                 </button>
               </div>
 
-              <button onClick={() => setVoucher(null)} className="w-full bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold py-3 rounded-xl">
+              <button
+                onClick={() => setVoucher(null)}
+                className="w-full bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold py-3 rounded-xl"
+              >
                 Cerrar
               </button>
 
-              <p className="text-[11px] text-slate-500">Mostralo en caja para canjear. Válido por 10 días desde la emisión.</p>
+              <p className="text-[11px] text-slate-500">
+                Mostralo en caja para canjear. Válido por 10 días desde la emisión.
+              </p>
             </div>
           </div>
         </div>
