@@ -1,7 +1,7 @@
 // C:\Dev\alfra-app\app\(private)\dashboard\DashboardClient.tsx
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabaseClient";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -13,6 +13,18 @@ function formatDateTime(dt: string) {
     return d.toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" });
   } catch {
     return dt;
+  }
+}
+
+function clamp(n: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, n));
+}
+
+function formatInt(n: number) {
+  try {
+    return new Intl.NumberFormat("es-AR").format(n);
+  } catch {
+    return String(n);
   }
 }
 
@@ -99,6 +111,91 @@ function IconBike(props: { className?: string }) {
   );
 }
 
+/** Progreso circular simple (sin librerías) */
+function ProgressRing({
+  value,
+  max,
+  size = 72,
+  stroke = 10,
+  labelTop,
+  labelMain,
+  labelBottom,
+  tone = "emerald",
+  pulse = false,
+}: {
+  value: number;
+  max: number;
+  size?: number;
+  stroke?: number;
+  labelTop: string;
+  labelMain: string;
+  labelBottom?: string;
+  tone?: "emerald" | "amber";
+  pulse?: boolean;
+}) {
+  const safeMax = Math.max(1, Number(max || 1));
+  const safeVal = clamp(Number(value || 0), 0, safeMax);
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const pct = safeVal / safeMax;
+  const dash = c * (1 - pct);
+
+  const toneTrack = tone === "emerald" ? "stroke-emerald-400/25" : "stroke-amber-400/25";
+  const toneBar = tone === "emerald" ? "stroke-emerald-300" : "stroke-amber-300";
+  const toneGlow = tone === "emerald" ? "shadow-emerald-500/20" : "shadow-amber-500/20";
+
+  return (
+    <div
+      className={[
+        "rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md px-3 py-3 flex items-center gap-3",
+        "shadow-sm",
+        pulse ? `animate-pulse ${toneGlow}` : "",
+      ].join(" ")}
+    >
+      <div className="relative shrink-0" style={{ width: size, height: size }}>
+        <svg width={size} height={size} className="block">
+          <g transform={`rotate(-90 ${size / 2} ${size / 2})`}>
+            <circle
+              cx={size / 2}
+              cy={size / 2}
+              r={r}
+              fill="none"
+              strokeWidth={stroke}
+              className={toneTrack}
+            />
+            <circle
+              cx={size / 2}
+              cy={size / 2}
+              r={r}
+              fill="none"
+              strokeWidth={stroke}
+              strokeLinecap="round"
+              strokeDasharray={c}
+              strokeDashoffset={dash}
+              className={toneBar}
+            />
+          </g>
+        </svg>
+
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="text-center leading-tight">
+            <div className="text-[10px] text-slate-200/80 font-bold tracking-wider uppercase">
+              {labelTop}
+            </div>
+            <div className="text-lg font-black text-white">{labelMain}</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="min-w-0">
+        <div className="text-xs font-bold text-slate-200/80 uppercase tracking-wider">{labelTop}</div>
+        <div className="text-base font-extrabold text-white">{labelMain}</div>
+        {labelBottom && <div className="text-[11px] text-slate-200/75 mt-1">{labelBottom}</div>}
+      </div>
+    </div>
+  );
+}
+
 function StampGrid({
   current,
   onRedeem,
@@ -116,9 +213,7 @@ function StampGrid({
     <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
       <div className="flex items-start justify-between gap-3 mb-3">
         <div>
-          <p className="text-xs font-bold text-slate-400 uppercase tracking-wide">
-            Sellos AlFra
-          </p>
+          <p className="text-xs font-bold text-slate-400 uppercase tracking-wide">Sellos AlFra</p>
           <p className="text-sm text-slate-700">
             {safe >= total ? (
               <span className="font-bold text-emerald-700">Premio desbloqueado</span>
@@ -170,9 +265,7 @@ function StampGrid({
         })}
       </div>
 
-      <p className="mt-3 text-[11px] text-slate-500">
-        Máximo 1 sello por día • Se obtiene con compra mínima.
-      </p>
+      <p className="mt-3 text-[11px] text-slate-500">Máximo 1 sello por día • Se obtiene con compra mínima.</p>
 
       {canRedeem && (
         <button
@@ -215,7 +308,7 @@ function DashboardSkeleton() {
             <div className="h-9 w-20 bg-white/10 rounded-full border border-white/5" />
           </div>
 
-          <div className="mt-6 bg-white/10 h-28 rounded-2xl border border-white/10" />
+          <div className="mt-6 bg-white/10 h-36 rounded-2xl border border-white/10" />
         </div>
       </div>
 
@@ -230,10 +323,7 @@ function DashboardSkeleton() {
           </div>
           <div className="grid grid-cols-4 gap-3">
             {Array.from({ length: 8 }).map((_, i) => (
-              <div
-                key={i}
-                className="aspect-square bg-slate-100 rounded-2xl border border-slate-50"
-              />
+              <div key={i} className="aspect-square bg-slate-100 rounded-2xl border border-slate-50" />
             ))}
           </div>
           <div className="mt-4 h-3 w-48 bg-slate-100 rounded" />
@@ -257,6 +347,23 @@ function DashboardSkeleton() {
   );
 }
 
+/** Animación suave del número (micro feedback PRO) */
+function animateNumber(from: number, to: number, ms: number, onUpdate: (v: number) => void) {
+  const start = performance.now();
+  const diff = to - from;
+
+  function tick(now: number) {
+    const t = clamp((now - start) / ms, 0, 1);
+    // easeOutCubic
+    const eased = 1 - Math.pow(1 - t, 3);
+    const val = Math.round(from + diff * eased);
+    onUpdate(val);
+    if (t < 1) requestAnimationFrame(tick);
+  }
+
+  requestAnimationFrame(tick);
+}
+
 export default function DashboardClient() {
   const supabase = createClient();
   const router = useRouter();
@@ -268,6 +375,12 @@ export default function DashboardClient() {
   const [stamps, setStamps] = useState(0);
   const [news, setNews] = useState<any[]>([]);
 
+  // UI-only (micro animación)
+  const [pointsUi, setPointsUi] = useState(0);
+  const prevPointsRef = useRef<number>(0);
+  const prevStampsRef = useRef<number>(0);
+  const [stampsPulse, setStampsPulse] = useState(false);
+
   const [redeeming, setRedeeming] = useState(false);
   const [redeemError, setRedeemError] = useState<string | null>(null);
   const [voucher, setVoucher] = useState<null | {
@@ -278,6 +391,30 @@ export default function DashboardClient() {
   }>(null);
 
   const barcodeRef = useRef<SVGSVGElement | null>(null);
+
+  const isPreview = searchParams.get("preview") === "true";
+
+  // Gamificación suave, sin “inventar” reglas de negocio:
+  // - Creamos “niveles” por puntos con umbral dinámico (step) solo para UX.
+  const levelMeta = useMemo(() => {
+    const p = Math.max(0, Number(pointsUi || 0));
+    const step = p < 500 ? 100 : p < 2000 ? 250 : 500;
+    const base = Math.floor(p / step) * step;
+    const next = base + step;
+    const into = p - base;
+    const pct = step > 0 ? into / step : 0;
+    const level = Math.floor(p / step) + 1;
+    const remaining = Math.max(0, next - p);
+    return { step, base, next, into, pct, level, remaining };
+  }, [pointsUi]);
+
+  const stampsMeta = useMemo(() => {
+    const total = 8;
+    const s = clamp(Number(stamps || 0), 0, total);
+    const pct = s / total;
+    const remaining = Math.max(0, total - s);
+    return { total, s, pct, remaining };
+  }, [stamps]);
 
   useEffect(() => {
     if (!voucher?.code) return;
@@ -295,6 +432,39 @@ export default function DashboardClient() {
       setRedeemError(e?.message || "No se pudo generar el código de barras.");
     }
   }, [voucher?.code]);
+
+  // Micro-animación cuando cambian puntos
+  useEffect(() => {
+    const prev = prevPointsRef.current;
+    const next = Number(points || 0);
+    if (prev === next) return;
+
+    prevPointsRef.current = next;
+
+    // si venimos de 0 (primer load), evitamos “salto” raro
+    if (loading) {
+      setPointsUi(next);
+      return;
+    }
+
+    animateNumber(pointsUi, next, 450, (v) => setPointsUi(v));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [points]);
+
+  // Feedback sutil al completar sellos (pulse)
+  useEffect(() => {
+    const prev = prevStampsRef.current;
+    const next = Number(stamps || 0);
+    prevStampsRef.current = next;
+
+    const total = 8;
+    const justCompleted = prev < total && next >= total;
+    if (justCompleted) {
+      setStampsPulse(true);
+      const t = window.setTimeout(() => setStampsPulse(false), 1200);
+      return () => window.clearTimeout(t);
+    }
+  }, [stamps]);
 
   useEffect(() => {
     let channel: any;
@@ -348,13 +518,10 @@ export default function DashboardClient() {
       }
 
       async function refreshWallets(uid: string) {
-        const { data: wallet } = await supabase
-          .from("loyalty_wallets")
-          .select("points")
-          .eq("user_id", uid)
-          .maybeSingle();
-
-        if (wallet?.points != null) setPoints(Number(wallet.points) || 0);
+        const { data: wallet } = await supabase.from("loyalty_wallets").select("points").eq("user_id", uid).maybeSingle();
+        const newPoints = wallet?.points != null ? Number(wallet.points) || 0 : 0;
+        setPoints(newPoints);
+        setPointsUi((prev) => (loading ? newPoints : prev)); // primer render: set directo
 
         const { data: sw } = await supabase
           .from("stamps_wallet")
@@ -362,7 +529,8 @@ export default function DashboardClient() {
           .eq("user_id", uid)
           .maybeSingle();
 
-        if (sw?.current_stamps != null) setStamps(Number(sw.current_stamps) || 0);
+        const newStamps = sw?.current_stamps != null ? Number(sw.current_stamps) || 0 : 0;
+        setStamps(newStamps);
       }
 
       await refreshWallets(userId);
@@ -379,30 +547,18 @@ export default function DashboardClient() {
 
       channel = supabase
         .channel("public:wallets_global")
-        .on(
-          "postgres_changes",
-          { event: "UPDATE", schema: "public", table: "loyalty_wallets" },
-          (payload) => {
-            const n: any = payload.new;
-            if (n?.user_id === userId) setPoints(Number(n.points) || 0);
-          }
-        )
-        .on(
-          "postgres_changes",
-          { event: "INSERT", schema: "public", table: "stamps_wallet" },
-          (payload) => {
-            const n: any = payload.new;
-            if (n?.user_id === userId) setStamps(Number(n.current_stamps) || 0);
-          }
-        )
-        .on(
-          "postgres_changes",
-          { event: "UPDATE", schema: "public", table: "stamps_wallet" },
-          (payload) => {
-            const n: any = payload.new;
-            if (n?.user_id === userId) setStamps(Number(n.current_stamps) || 0);
-          }
-        )
+        .on("postgres_changes", { event: "UPDATE", schema: "public", table: "loyalty_wallets" }, (payload) => {
+          const n: any = payload.new;
+          if (n?.user_id === userId) setPoints(Number(n.points) || 0);
+        })
+        .on("postgres_changes", { event: "INSERT", schema: "public", table: "stamps_wallet" }, (payload) => {
+          const n: any = payload.new;
+          if (n?.user_id === userId) setStamps(Number(n.current_stamps) || 0);
+        })
+        .on("postgres_changes", { event: "UPDATE", schema: "public", table: "stamps_wallet" }, (payload) => {
+          const n: any = payload.new;
+          if (n?.user_id === userId) setStamps(Number(n.current_stamps) || 0);
+        })
         .subscribe();
 
       const onWake = () => {
@@ -628,7 +784,12 @@ export default function DashboardClient() {
     return <DashboardSkeleton />;
   }
 
-  const isPreview = searchParams.get("preview") === "true";
+  const heroSubtitle =
+    stampsMeta.s >= stampsMeta.total
+      ? "Tenés un premio listo para canjear."
+      : stampsMeta.s > 0
+      ? `Te faltan ${stampsMeta.remaining} sellos para desbloquear el premio.`
+      : "Empezá a sumar y desbloqueá beneficios reales.";
 
   return (
     <div className="bg-slate-50 min-h-dvh pb-24">
@@ -638,19 +799,21 @@ export default function DashboardClient() {
         </div>
       )}
 
+      {/* HERO PRO */}
       <div
         className={`text-white p-6 rounded-b-3xl shadow-lg relative overflow-hidden border border-white/10 ${
           isPreview ? "mt-6" : ""
         } bg-linear-to-br from-slate-950 via-slate-900 to-slate-800`}
       >
-        <div className="absolute top-0 right-0 w-40 h-40 bg-emerald-500/10 rounded-full blur-3xl -mr-14 -mt-14 pointer-events-none" />
-        <div className="absolute bottom-0 left-0 w-40 h-40 bg-amber-400/10 rounded-full blur-3xl -ml-14 -mb-14 pointer-events-none" />
+        <div className="absolute top-0 right-0 w-44 h-44 bg-emerald-500/10 rounded-full blur-3xl -mr-14 -mt-14 pointer-events-none" />
+        <div className="absolute bottom-0 left-0 w-44 h-44 bg-amber-400/10 rounded-full blur-3xl -ml-14 -mb-14 pointer-events-none" />
 
         <div className="relative z-10">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <p className="text-slate-300/80 text-sm mb-1">Bienvenido,</p>
-              <h1 className="text-2xl font-bold capitalize mb-2">{userName}</h1>
+              <h1 className="text-2xl font-bold capitalize">{userName}</h1>
+              <p className="text-[12px] text-slate-200/80 mt-1">{heroSubtitle}</p>
             </div>
 
             <Link
@@ -661,29 +824,64 @@ export default function DashboardClient() {
             </Link>
           </div>
 
-          <div className="flex items-start justify-between gap-4 bg-white/10 backdrop-blur-md p-4 rounded-2xl border border-white/10 transition-all duration-300 mt-4">
-            <div className="min-w-0">
-              <p className="text-xs text-emerald-300 font-bold tracking-wider uppercase mb-1">
-                Tus Puntos AlFra
-              </p>
-              <p className="text-4xl leading-none font-black text-amber-300 transition-all">
-                {points}
-              </p>
-              <p className="text-[11px] text-slate-200/80 mt-2">
-                Acumulá puntos y canjeá beneficios exclusivos.
-              </p>
-            </div>
+          {/* Resumen PRO */}
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <ProgressRing
+              value={levelMeta.into}
+              max={levelMeta.step}
+              tone="amber"
+              labelTop="Nivel"
+              labelMain={`${levelMeta.level}`}
+              labelBottom={`Próximo nivel en ${formatInt(levelMeta.remaining)} pts`}
+            />
 
-            <Link
-              href="/puntos"
-              className="shrink-0 text-emerald-200 hover:text-emerald-100 text-xs font-bold underline underline-offset-4 decoration-white/20 hover:decoration-white/40 transition active:scale-[0.98] mt-1"
-            >
-              Ver historial
-            </Link>
+            <ProgressRing
+              value={stampsMeta.s}
+              max={stampsMeta.total}
+              tone="emerald"
+              labelTop="Sellos"
+              labelMain={`${stampsMeta.s}/${stampsMeta.total}`}
+              labelBottom={stampsMeta.s >= stampsMeta.total ? "Premio desbloqueado" : "Máx 1 por día"}
+              pulse={stampsPulse}
+            />
+          </div>
+
+          {/* Card principal puntos */}
+          <div className="mt-3 bg-white/10 backdrop-blur-md p-4 rounded-2xl border border-white/10">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <p className="text-xs text-emerald-300 font-bold tracking-wider uppercase mb-1">
+                  Tus Puntos AlFra
+                </p>
+                <p className="text-4xl leading-none font-black text-amber-300 tabular-nums">
+                  {formatInt(pointsUi)}
+                </p>
+                <div className="mt-3">
+                  <div className="flex items-center justify-between text-[11px] text-slate-200/80">
+                    <span>Progreso al próximo nivel</span>
+                    <span className="font-bold">{Math.round(levelMeta.pct * 100)}%</span>
+                  </div>
+                  <div className="mt-1 h-2 rounded-full bg-white/10 overflow-hidden border border-white/10">
+                    <div
+                      className="h-full bg-amber-300/90 rounded-full transition-[width] duration-500"
+                      style={{ width: `${clamp(levelMeta.pct * 100, 0, 100)}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <Link
+                href="/puntos"
+                className="shrink-0 text-emerald-200 hover:text-emerald-100 text-xs font-bold underline underline-offset-4 decoration-white/20 hover:decoration-white/40 transition active:scale-[0.98] mt-1"
+              >
+                Ver historial
+              </Link>
+            </div>
           </div>
         </div>
       </div>
 
+      {/* SELL0S */}
       <div className="px-4 sm:px-6 -mt-4 relative z-20">
         <StampGrid current={stamps} onRedeem={handleRedeem} redeeming={redeeming} />
         {redeemError && (
@@ -693,6 +891,7 @@ export default function DashboardClient() {
         )}
       </div>
 
+      {/* SERVICIOS */}
       <div className="px-4 sm:px-6 mt-6">
         <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
           <div className="flex items-center justify-between mb-3">
@@ -756,6 +955,7 @@ export default function DashboardClient() {
         </div>
       </div>
 
+      {/* NOVEDADES */}
       <div className="px-4 sm:px-6 mt-6">
         <div className="flex justify-between items-center mb-3">
           <h2 className="font-bold text-slate-800">Novedades & Eventos</h2>
@@ -769,10 +969,25 @@ export default function DashboardClient() {
                   <IconGift className="w-6 h-6" />
                 </div>
                 <div>
-                  <p className="text-sm font-extrabold text-slate-900">Próximamente</p>
+                  <p className="text-sm font-extrabold text-slate-900">Novedades en camino</p>
                   <p className="text-sm text-slate-600">
-                    Publicaremos novedades y beneficios exclusivos para clientes AlFra.
+                    Mientras tanto, revisá Beneficios y la Carta para ver lo nuevo del día.
                   </p>
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Link
+                      href="/beneficios"
+                      className="text-xs font-bold px-3 py-2 rounded-xl bg-emerald-600 text-white hover:bg-emerald-500 transition"
+                    >
+                      Ver Beneficios
+                    </Link>
+                    <Link
+                      href="/carta"
+                      className="text-xs font-bold px-3 py-2 rounded-xl bg-slate-100 text-slate-900 border border-slate-200 hover:bg-slate-200 transition"
+                    >
+                      Ver Carta
+                    </Link>
+                  </div>
                 </div>
               </div>
             </div>
@@ -824,9 +1039,7 @@ export default function DashboardClient() {
                   </div>
                 </div>
 
-                <p className="mt-2 text-[10px] text-slate-500 text-center">
-                  Escaneá este código en caja (CODE128).
-                </p>
+                <p className="mt-2 text-[10px] text-slate-500 text-center">Escaneá este código en caja (CODE128).</p>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -879,9 +1092,7 @@ export default function DashboardClient() {
                 Cerrar
               </button>
 
-              <p className="text-[11px] text-slate-500">
-                Mostralo en caja para canjear. Válido por 10 días desde la emisión.
-              </p>
+              <p className="text-[11px] text-slate-500">Mostralo en caja para canjear. Válido por 10 días desde la emisión.</p>
             </div>
           </div>
         </div>
