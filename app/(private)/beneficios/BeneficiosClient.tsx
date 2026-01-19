@@ -1,8 +1,10 @@
+// C:\Dev\alfra-app\app\(private)\beneficios\BeneficiosClient.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabaseClient";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 type BeneficioRow = {
   id: string;
@@ -19,6 +21,43 @@ type BeneficioRow = {
   published_at: string | null;
 };
 
+function clamp(n: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, n));
+}
+
+function formatInt(n: number) {
+  try {
+    return new Intl.NumberFormat("es-AR").format(n);
+  } catch {
+    return String(n);
+  }
+}
+
+function Badge({
+  children,
+  tone = "slate",
+}: {
+  children: React.ReactNode;
+  tone?: "slate" | "emerald" | "red" | "amber" | "purple";
+}) {
+  const cls =
+    tone === "emerald"
+      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+      : tone === "red"
+      ? "bg-red-50 text-red-700 border-red-200"
+      : tone === "amber"
+      ? "bg-amber-50 text-amber-800 border-amber-200"
+      : tone === "purple"
+      ? "bg-purple-50 text-purple-700 border-purple-200"
+      : "bg-slate-50 text-slate-600 border-slate-200";
+
+  return (
+    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-extrabold border ${cls}`}>
+      {children}
+    </span>
+  );
+}
+
 export default function BeneficiosClient() {
   const supabase = createClient();
   const router = useRouter();
@@ -32,13 +71,7 @@ export default function BeneficiosClient() {
   const [redeemingId, setRedeemingId] = useState<string | null>(null);
   const [redeemMsg, setRedeemMsg] = useState<string | null>(null);
 
-  const pointsLabel = useMemo(() => {
-    try {
-      return new Intl.NumberFormat("es-AR").format(points);
-    } catch {
-      return String(points);
-    }
-  }, [points]);
+  const pointsLabel = useMemo(() => formatInt(points), [points]);
 
   useEffect(() => {
     async function load() {
@@ -74,7 +107,7 @@ export default function BeneficiosClient() {
 
       setPoints(wallet?.points ?? 0);
 
-      // 2) beneficios publicados (y activos, si querés)
+      // 2) beneficios publicados
       const { data: bData, error: bErr } = await supabase
         .from("beneficios")
         .select("*")
@@ -124,7 +157,7 @@ export default function BeneficiosClient() {
         return;
       }
 
-      // refrescar puntos (post canje)
+      // refrescar puntos
       const { data: userData } = await supabase.auth.getUser();
       const uid = userData?.user?.id;
       if (uid) {
@@ -142,103 +175,206 @@ export default function BeneficiosClient() {
     }
   }
 
+  const publishedCount = beneficios.length;
+
   return (
-    <main className="max-w-5xl mx-auto p-6 space-y-4">
-      <header className="text-center space-y-1">
-        <h1 className="text-3xl font-bold">Beneficios AlFra 🏪</h1>
-        <p className="opacity-80 text-sm">Canjeá tus puntos por premios reales.</p>
+    <main className="max-w-5xl mx-auto px-4 sm:px-6 pb-24">
+      {/* Header */}
+      <header className="mt-2 sm:mt-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="text-2xl sm:text-3xl font-black text-slate-900">Beneficios AlFra</h1>
+            <p className="text-sm text-slate-600 mt-1">Canjeá tus puntos por premios reales.</p>
+          </div>
+
+          <Link
+            href="/dashboard"
+            className="shrink-0 text-xs font-extrabold rounded-xl border border-slate-200 bg-white px-3 py-2 hover:bg-slate-50 transition"
+          >
+            Volver
+          </Link>
+        </div>
       </header>
 
-      <section className="border rounded-xl bg-white p-4 flex items-center justify-between gap-3">
-        <div>
-          <div className="text-xs text-slate-500">Tus puntos</div>
-          <div className="text-2xl font-bold">{pointsLabel}</div>
+      {/* Saldo */}
+      <section className="mt-5 bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+        <div className="p-5 bg-linear-to-br from-slate-950 via-slate-900 to-slate-800 text-white">
+          <p className="text-[11px] font-black uppercase tracking-widest text-emerald-300">Tus puntos</p>
+          <div className="mt-1 flex items-end justify-between gap-4">
+            <div className="text-4xl sm:text-5xl font-black text-amber-300 tabular-nums">{pointsLabel}</div>
+            <Link
+              href="/puntos"
+              className="shrink-0 text-xs font-extrabold rounded-xl bg-white/10 border border-white/10 px-3 py-2 hover:bg-white/15 transition"
+            >
+              Ver movimientos
+            </Link>
+          </div>
+          <p className="text-[12px] text-slate-200/80 mt-2">
+            Elegí un beneficio y canjeá si te alcanza el saldo.
+          </p>
         </div>
-        <div className="text-xs text-slate-500 text-right">
-          * Si un beneficio requiere dinero extra, lo vas a ver en el voucher.
+
+        <div className="p-4 flex items-center justify-between gap-3">
+          <div className="text-[12px] text-slate-600">
+            {publishedCount > 0 ? (
+              <>
+                Beneficios disponibles: <span className="font-black text-slate-900">{publishedCount}</span>
+              </>
+            ) : (
+              <>Todavía no hay beneficios publicados.</>
+            )}
+          </div>
+
+          <Badge tone="slate">Puntos: {pointsLabel}</Badge>
         </div>
       </section>
 
-      {loading && <p className="text-sm text-slate-500 text-center">Cargando...</p>}
+      {loading && <p className="mt-6 text-sm text-slate-500 text-center">Cargando...</p>}
 
       {!loading && errorMsg && (
-        <div className="border border-red-400 bg-red-50 p-4 rounded text-sm">{errorMsg}</div>
+        <div className="mt-6 border border-red-400 bg-red-50 p-4 rounded-xl text-sm text-red-800">{errorMsg}</div>
       )}
 
       {!loading && !errorMsg && beneficios.length === 0 && (
-        <p className="text-center text-slate-500 text-sm">Todavía no hay beneficios disponibles.</p>
+        <div className="mt-6 rounded-2xl border border-slate-200 bg-linear-to-br from-slate-50 via-white to-slate-50 p-5">
+          <p className="text-sm font-extrabold text-slate-900">No hay beneficios todavía</p>
+          <p className="text-sm text-slate-600 mt-1">Apenas publiquen uno, lo vas a ver acá.</p>
+          <div className="mt-3 flex gap-2">
+            <Link
+              href="/carta"
+              className="text-xs font-extrabold rounded-xl bg-slate-900 text-white px-3 py-2 hover:bg-slate-800 transition"
+            >
+              Ver Carta
+            </Link>
+            <Link
+              href="/puntos"
+              className="text-xs font-extrabold rounded-xl bg-white border border-slate-200 text-slate-900 px-3 py-2 hover:bg-slate-50 transition"
+            >
+              Ver Puntos
+            </Link>
+          </div>
+        </div>
       )}
 
       {redeemMsg && (
-        <div className="border rounded-lg bg-amber-50 border-amber-200 p-3 text-sm text-amber-900">
+        <div className="mt-6 border rounded-xl bg-amber-50 border-amber-200 p-3 text-sm text-amber-900">
           {redeemMsg}
         </div>
       )}
 
-      <section className="grid gap-4 md:grid-cols-2">
+      {/* Grid beneficios */}
+      <section className="mt-6 grid gap-4 md:grid-cols-2">
         {beneficios.map((b) => {
-          const canRedeem =
-            b.is_active && points >= (b.points_cost ?? 0) && (b.points_cost ?? 0) > 0;
-          const needsCash = (b.cash_extra ?? 0) > 0;
+          const cost = Number(b.points_cost ?? 0);
+          const cash = Number(b.cash_extra ?? 0);
+          const needsCash = cash > 0;
+
+          const canRedeem = b.is_active && cost > 0 && points >= cost;
+          const pct = cost > 0 ? clamp(points / cost, 0, 1) : 0;
+          const remaining = cost > 0 ? Math.max(0, cost - points) : 0;
+
+          const stateBadge = !b.is_active
+            ? { text: "Inactivo", tone: "slate" as const }
+            : canRedeem
+            ? { text: "Te alcanza", tone: "emerald" as const }
+            : { text: `Faltan ${formatInt(remaining)} pts`, tone: "amber" as const };
 
           return (
-            <article key={b.id} className="border rounded-xl bg-white overflow-hidden shadow-sm">
-              {b.image_url && (
+            <article key={b.id} className="border rounded-2xl bg-white overflow-hidden shadow-sm hover:shadow-md transition">
+              {/* Imagen */}
+              {b.image_url ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={b.image_url} alt={b.title} className="h-44 w-full object-cover" />
+              ) : (
+                <div className="h-44 w-full bg-linear-to-br from-slate-100 via-white to-slate-100" />
               )}
 
-              <div className="p-4 space-y-2">
+              <div className="p-4 space-y-3">
                 <div className="flex items-start justify-between gap-2">
-                  <h2 className="font-bold text-lg leading-tight">{b.title}</h2>
-                  {b.category && (
-                    <span className="text-[10px] px-2 py-1 rounded-full border bg-slate-50 text-slate-600">
-                      {b.category}
-                    </span>
-                  )}
+                  <div className="min-w-0">
+                    <h2 className="font-black text-lg leading-tight text-slate-900">{b.title}</h2>
+                    {b.summary && <p className="text-sm text-slate-600 mt-1">{b.summary}</p>}
+                  </div>
+
+                  <div className="shrink-0 flex flex-col items-end gap-2">
+                    {b.category ? <Badge tone="purple">{b.category}</Badge> : <span />}
+                    <Badge tone={stateBadge.tone as any}>{stateBadge.text}</Badge>
+                  </div>
                 </div>
 
-                {b.summary && <p className="text-sm text-slate-700">{b.summary}</p>}
-
+                {/* Costos */}
                 <div className="grid grid-cols-2 gap-2">
-                  <div className="border rounded-lg p-2 bg-slate-50">
-                    <div className="text-[11px] text-slate-500">Costo</div>
-                    <div className="font-semibold">{b.points_cost} pts</div>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-[11px] text-slate-500 font-black uppercase tracking-widest">Costo</p>
+                    <p className="mt-1 text-sm font-black text-slate-900">{formatInt(cost)} pts</p>
                   </div>
-                  <div className="border rounded-lg p-2 bg-slate-50">
-                    <div className="text-[11px] text-slate-500">Extra</div>
-                    <div className="font-semibold">{needsCash ? `$${b.cash_extra}` : "—"}</div>
+
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-[11px] text-slate-500 font-black uppercase tracking-widest">Extra</p>
+                    <p className="mt-1 text-sm font-black text-slate-900">{needsCash ? `$${formatInt(cash)}` : "—"}</p>
                   </div>
                 </div>
 
-                {b.content && (
-                  <div className="border rounded-lg p-2">
-                    <div className="text-[11px] text-slate-500">Detalle</div>
-                    <div className="text-slate-700 whitespace-pre-wrap">{b.content}</div>
+                {/* Progreso */}
+                {cost > 0 && (
+                  <div className="rounded-xl border border-slate-200 bg-white p-3">
+                    <div className="flex items-center justify-between text-[11px] text-slate-500">
+                      <span>Progreso</span>
+                      <span className="font-black text-slate-700">{Math.round(pct * 100)}%</span>
+                    </div>
+                    <div className="mt-1 h-2 rounded-full bg-slate-100 overflow-hidden border border-slate-200">
+                      <div
+                        className="h-full bg-emerald-600/80 rounded-full transition-[width] duration-500"
+                        style={{ width: `${clamp(pct * 100, 0, 100)}%` }}
+                      />
+                    </div>
+
+                    {!canRedeem && b.is_active && (
+                      <p className="mt-2 text-[12px] text-slate-600">
+                        Te faltan <span className="font-black text-slate-900">{formatInt(remaining)}</span> pts para canjear.
+                      </p>
+                    )}
+
+                    {canRedeem && b.is_active && (
+                      <p className="mt-2 text-[12px] text-emerald-700 font-black">Listo para canjear.</p>
+                    )}
+
+                    {!b.is_active && (
+                      <p className="mt-2 text-[12px] text-slate-600">Este beneficio está temporalmente inactivo.</p>
+                    )}
                   </div>
                 )}
 
-                <div className="pt-2">
+                {/* Detalle (si hay) */}
+                {b.content && (
+                  <details className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <summary className="cursor-pointer text-sm font-black text-slate-900">
+                      Ver detalle
+                    </summary>
+                    <div className="mt-2 text-sm text-slate-700 whitespace-pre-wrap">{b.content}</div>
+                  </details>
+                )}
+
+                {/* CTA */}
+                <div className="pt-1">
                   <button
                     disabled={!canRedeem || redeemingId === b.id}
                     onClick={() => redeem(b)}
                     className={[
-                      "w-full rounded-lg px-3 py-2 text-sm font-semibold border",
+                      "w-full rounded-xl px-3 py-3 text-sm font-black border transition",
                       canRedeem
                         ? "bg-emerald-600 text-white border-emerald-700 hover:bg-emerald-700"
                         : "bg-slate-100 text-slate-500 border-slate-200",
-                      redeemingId === b.id ? "opacity-70" : "",
+                      redeemingId === b.id ? "opacity-70 cursor-wait" : "",
                     ].join(" ")}
                   >
-                    {redeemingId === b.id
-                      ? "Canjeando..."
-                      : canRedeem
-                      ? "CANJEAR BENEFICIO"
-                      : "No alcanzan los puntos"}
+                    {redeemingId === b.id ? "Canjeando..." : canRedeem ? "CANJEAR" : "No alcanza el saldo"}
                   </button>
 
-                  {!b.is_active && (
-                    <p className="mt-2 text-xs text-slate-500">Beneficio temporalmente inactivo.</p>
+                  {needsCash && (
+                    <p className="mt-2 text-[11px] text-slate-500">
+                      Este beneficio requiere dinero extra además del canje.
+                    </p>
                   )}
                 </div>
               </div>
