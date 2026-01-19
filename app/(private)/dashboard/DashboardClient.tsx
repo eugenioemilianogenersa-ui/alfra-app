@@ -111,91 +111,6 @@ function IconBike(props: { className?: string }) {
   );
 }
 
-/** Progreso circular simple (sin librerías) */
-function ProgressRing({
-  value,
-  max,
-  size = 72,
-  stroke = 10,
-  labelTop,
-  labelMain,
-  labelBottom,
-  tone = "emerald",
-  pulse = false,
-}: {
-  value: number;
-  max: number;
-  size?: number;
-  stroke?: number;
-  labelTop: string;
-  labelMain: string;
-  labelBottom?: string;
-  tone?: "emerald" | "amber";
-  pulse?: boolean;
-}) {
-  const safeMax = Math.max(1, Number(max || 1));
-  const safeVal = clamp(Number(value || 0), 0, safeMax);
-  const r = (size - stroke) / 2;
-  const c = 2 * Math.PI * r;
-  const pct = safeVal / safeMax;
-  const dash = c * (1 - pct);
-
-  const toneTrack = tone === "emerald" ? "stroke-emerald-400/25" : "stroke-amber-400/25";
-  const toneBar = tone === "emerald" ? "stroke-emerald-300" : "stroke-amber-300";
-  const toneGlow = tone === "emerald" ? "shadow-emerald-500/20" : "shadow-amber-500/20";
-
-  return (
-    <div
-      className={[
-        "rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md px-3 py-3 flex items-center gap-3",
-        "shadow-sm",
-        pulse ? `animate-pulse ${toneGlow}` : "",
-      ].join(" ")}
-    >
-      <div className="relative shrink-0" style={{ width: size, height: size }}>
-        <svg width={size} height={size} className="block">
-          <g transform={`rotate(-90 ${size / 2} ${size / 2})`}>
-            <circle
-              cx={size / 2}
-              cy={size / 2}
-              r={r}
-              fill="none"
-              strokeWidth={stroke}
-              className={toneTrack}
-            />
-            <circle
-              cx={size / 2}
-              cy={size / 2}
-              r={r}
-              fill="none"
-              strokeWidth={stroke}
-              strokeLinecap="round"
-              strokeDasharray={c}
-              strokeDashoffset={dash}
-              className={toneBar}
-            />
-          </g>
-        </svg>
-
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="text-center leading-tight">
-            <div className="text-[10px] text-slate-200/80 font-bold tracking-wider uppercase">
-              {labelTop}
-            </div>
-            <div className="text-lg font-black text-white">{labelMain}</div>
-          </div>
-        </div>
-      </div>
-
-      <div className="min-w-0">
-        <div className="text-xs font-bold text-slate-200/80 uppercase tracking-wider">{labelTop}</div>
-        <div className="text-base font-extrabold text-white">{labelMain}</div>
-        {labelBottom && <div className="text-[11px] text-slate-200/75 mt-1">{labelBottom}</div>}
-      </div>
-    </div>
-  );
-}
-
 function StampGrid({
   current,
   onRedeem,
@@ -298,7 +213,6 @@ function DashboardSkeleton() {
       <div className="text-white p-6 rounded-b-3xl shadow-lg relative overflow-hidden border border-white/10 bg-linear-to-br from-slate-950 via-slate-900 to-slate-800">
         <div className="absolute top-0 right-0 w-40 h-40 bg-emerald-500/10 rounded-full blur-3xl -mr-14 -mt-14 pointer-events-none" />
         <div className="absolute bottom-0 left-0 w-40 h-40 bg-amber-400/10 rounded-full blur-3xl -ml-14 -mb-14 pointer-events-none" />
-
         <div className="relative z-10">
           <div className="flex justify-between items-start gap-3">
             <div className="space-y-2">
@@ -307,40 +221,7 @@ function DashboardSkeleton() {
             </div>
             <div className="h-9 w-20 bg-white/10 rounded-full border border-white/5" />
           </div>
-
-          <div className="mt-6 bg-white/10 h-36 rounded-2xl border border-white/10" />
-        </div>
-      </div>
-
-      <div className="px-4 sm:px-6 -mt-4 relative z-20">
-        <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
-          <div className="flex justify-between mb-4">
-            <div className="space-y-2">
-              <div className="h-3 w-24 bg-slate-200 rounded" />
-              <div className="h-4 w-40 bg-slate-100 rounded" />
-            </div>
-            <div className="h-6 w-16 bg-slate-100 rounded-full" />
-          </div>
-          <div className="grid grid-cols-4 gap-3">
-            {Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="aspect-square bg-slate-100 rounded-2xl border border-slate-50" />
-            ))}
-          </div>
-          <div className="mt-4 h-3 w-48 bg-slate-100 rounded" />
-        </div>
-      </div>
-
-      <div className="px-4 sm:px-6 mt-6">
-        <div className="bg-white p-4 rounded-2xl border border-slate-200">
-          <div className="flex justify-between mb-3">
-            <div className="h-3 w-20 bg-slate-200 rounded" />
-            <div className="h-3 w-24 bg-slate-100 rounded" />
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="h-20 bg-slate-100 rounded-2xl border border-slate-50" />
-            ))}
-          </div>
+          <div className="mt-6 bg-white/10 h-28 rounded-2xl border border-white/10" />
         </div>
       </div>
     </div>
@@ -354,7 +235,6 @@ function animateNumber(from: number, to: number, ms: number, onUpdate: (v: numbe
 
   function tick(now: number) {
     const t = clamp((now - start) / ms, 0, 1);
-    // easeOutCubic
     const eased = 1 - Math.pow(1 - t, 3);
     const val = Math.round(from + diff * eased);
     onUpdate(val);
@@ -375,11 +255,12 @@ export default function DashboardClient() {
   const [stamps, setStamps] = useState(0);
   const [news, setNews] = useState<any[]>([]);
 
-  // UI-only (micro animación)
+  // UI-only
   const [pointsUi, setPointsUi] = useState(0);
   const prevPointsRef = useRef<number>(0);
-  const prevStampsRef = useRef<number>(0);
-  const [stampsPulse, setStampsPulse] = useState(false);
+
+  // Próximo beneficio real (mínimo points_cost publicado/activo)
+  const [nextBenefit, setNextBenefit] = useState<null | { title: string; cost: number }>(null);
 
   const [redeeming, setRedeeming] = useState(false);
   const [redeemError, setRedeemError] = useState<string | null>(null);
@@ -391,30 +272,6 @@ export default function DashboardClient() {
   }>(null);
 
   const barcodeRef = useRef<SVGSVGElement | null>(null);
-
-  const isPreview = searchParams.get("preview") === "true";
-
-  // Gamificación suave, sin “inventar” reglas de negocio:
-  // - Creamos “niveles” por puntos con umbral dinámico (step) solo para UX.
-  const levelMeta = useMemo(() => {
-    const p = Math.max(0, Number(pointsUi || 0));
-    const step = p < 500 ? 100 : p < 2000 ? 250 : 500;
-    const base = Math.floor(p / step) * step;
-    const next = base + step;
-    const into = p - base;
-    const pct = step > 0 ? into / step : 0;
-    const level = Math.floor(p / step) + 1;
-    const remaining = Math.max(0, next - p);
-    return { step, base, next, into, pct, level, remaining };
-  }, [pointsUi]);
-
-  const stampsMeta = useMemo(() => {
-    const total = 8;
-    const s = clamp(Number(stamps || 0), 0, total);
-    const pct = s / total;
-    const remaining = Math.max(0, total - s);
-    return { total, s, pct, remaining };
-  }, [stamps]);
 
   useEffect(() => {
     if (!voucher?.code) return;
@@ -433,7 +290,7 @@ export default function DashboardClient() {
     }
   }, [voucher?.code]);
 
-  // Micro-animación cuando cambian puntos
+  // micro-animación puntos
   useEffect(() => {
     const prev = prevPointsRef.current;
     const next = Number(points || 0);
@@ -441,7 +298,6 @@ export default function DashboardClient() {
 
     prevPointsRef.current = next;
 
-    // si venimos de 0 (primer load), evitamos “salto” raro
     if (loading) {
       setPointsUi(next);
       return;
@@ -451,20 +307,16 @@ export default function DashboardClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [points]);
 
-  // Feedback sutil al completar sellos (pulse)
-  useEffect(() => {
-    const prev = prevStampsRef.current;
-    const next = Number(stamps || 0);
-    prevStampsRef.current = next;
+  const isPreview = searchParams.get("preview") === "true";
 
-    const total = 8;
-    const justCompleted = prev < total && next >= total;
-    if (justCompleted) {
-      setStampsPulse(true);
-      const t = window.setTimeout(() => setStampsPulse(false), 1200);
-      return () => window.clearTimeout(t);
-    }
-  }, [stamps]);
+  const benefitMeta = useMemo(() => {
+    if (!nextBenefit?.cost || nextBenefit.cost <= 0) return null;
+    const p = Math.max(0, Number(pointsUi || 0));
+    const cost = nextBenefit.cost;
+    const pct = clamp(p / cost, 0, 1);
+    const remaining = Math.max(0, cost - p);
+    return { pct, remaining, cost, title: nextBenefit.title };
+  }, [nextBenefit, pointsUi]);
 
   useEffect(() => {
     let channel: any;
@@ -518,10 +370,15 @@ export default function DashboardClient() {
       }
 
       async function refreshWallets(uid: string) {
-        const { data: wallet } = await supabase.from("loyalty_wallets").select("points").eq("user_id", uid).maybeSingle();
+        const { data: wallet } = await supabase
+          .from("loyalty_wallets")
+          .select("points")
+          .eq("user_id", uid)
+          .maybeSingle();
+
         const newPoints = wallet?.points != null ? Number(wallet.points) || 0 : 0;
         setPoints(newPoints);
-        setPointsUi((prev) => (loading ? newPoints : prev)); // primer render: set directo
+        setPointsUi((prev) => (loading ? newPoints : prev));
 
         const { data: sw } = await supabase
           .from("stamps_wallet")
@@ -529,11 +386,31 @@ export default function DashboardClient() {
           .eq("user_id", uid)
           .maybeSingle();
 
-        const newStamps = sw?.current_stamps != null ? Number(sw.current_stamps) || 0 : 0;
-        setStamps(newStamps);
+        if (sw?.current_stamps != null) setStamps(Number(sw.current_stamps) || 0);
       }
 
       await refreshWallets(userId);
+
+      // ✅ Próximo beneficio real (mínimo costo publicado/activo)
+      try {
+        const { data: bData } = await supabase
+          .from("beneficios")
+          .select("title, points_cost, is_published, is_active")
+          .eq("is_published", true)
+          .eq("is_active", true)
+          .gt("points_cost", 0)
+          .order("points_cost", { ascending: true })
+          .limit(1);
+
+        const b = Array.isArray(bData) ? bData?.[0] : null;
+        if (b?.points_cost != null) {
+          setNextBenefit({ title: String(b.title || "Beneficio"), cost: Number(b.points_cost) || 0 });
+        } else {
+          setNextBenefit(null);
+        }
+      } catch {
+        setNextBenefit(null);
+      }
 
       const { data: newsData } = await supabase
         .from("news")
@@ -780,16 +657,13 @@ export default function DashboardClient() {
     return `https://wa.me/5493582405177?text=${encodeURIComponent(text)}`;
   }
 
-  if (loading) {
-    return <DashboardSkeleton />;
-  }
+  if (loading) return <DashboardSkeleton />;
 
-  const heroSubtitle =
-    stampsMeta.s >= stampsMeta.total
-      ? "Tenés un premio listo para canjear."
-      : stampsMeta.s > 0
-      ? `Te faltan ${stampsMeta.remaining} sellos para desbloquear el premio.`
-      : "Empezá a sumar y desbloqueá beneficios reales.";
+  const heroLine = benefitMeta
+    ? benefitMeta.remaining <= 0
+      ? `Ya podés canjear: ${benefitMeta.title}`
+      : `Te faltan ${formatInt(benefitMeta.remaining)} pts para canjear: ${benefitMeta.title}`
+    : "Sumá puntos y canjeá beneficios reales.";
 
   return (
     <div className="bg-slate-50 min-h-dvh pb-24">
@@ -799,7 +673,7 @@ export default function DashboardClient() {
         </div>
       )}
 
-      {/* HERO PRO */}
+      {/* HERO (solo PUNTOS, sin niveles, sin sellos duplicados) */}
       <div
         className={`text-white p-6 rounded-b-3xl shadow-lg relative overflow-hidden border border-white/10 ${
           isPreview ? "mt-6" : ""
@@ -813,7 +687,7 @@ export default function DashboardClient() {
             <div className="min-w-0">
               <p className="text-slate-300/80 text-sm mb-1">Bienvenido,</p>
               <h1 className="text-2xl font-bold capitalize">{userName}</h1>
-              <p className="text-[12px] text-slate-200/80 mt-1">{heroSubtitle}</p>
+              <p className="text-[12px] text-slate-200/80 mt-1">{heroLine}</p>
             </div>
 
             <Link
@@ -824,50 +698,33 @@ export default function DashboardClient() {
             </Link>
           </div>
 
-          {/* Resumen PRO */}
-          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <ProgressRing
-              value={levelMeta.into}
-              max={levelMeta.step}
-              tone="amber"
-              labelTop="Nivel"
-              labelMain={`${levelMeta.level}`}
-              labelBottom={`Próximo nivel en ${formatInt(levelMeta.remaining)} pts`}
-            />
-
-            <ProgressRing
-              value={stampsMeta.s}
-              max={stampsMeta.total}
-              tone="emerald"
-              labelTop="Sellos"
-              labelMain={`${stampsMeta.s}/${stampsMeta.total}`}
-              labelBottom={stampsMeta.s >= stampsMeta.total ? "Premio desbloqueado" : "Máx 1 por día"}
-              pulse={stampsPulse}
-            />
-          </div>
-
-          {/* Card principal puntos */}
-          <div className="mt-3 bg-white/10 backdrop-blur-md p-4 rounded-2xl border border-white/10">
+          <div className="mt-4 bg-white/10 backdrop-blur-md p-4 rounded-2xl border border-white/10">
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
-                <p className="text-xs text-emerald-300 font-bold tracking-wider uppercase mb-1">
-                  Tus Puntos AlFra
-                </p>
-                <p className="text-4xl leading-none font-black text-amber-300 tabular-nums">
-                  {formatInt(pointsUi)}
-                </p>
-                <div className="mt-3">
-                  <div className="flex items-center justify-between text-[11px] text-slate-200/80">
-                    <span>Progreso al próximo nivel</span>
-                    <span className="font-bold">{Math.round(levelMeta.pct * 100)}%</span>
+                <p className="text-xs text-emerald-300 font-bold tracking-wider uppercase mb-1">Tus Puntos AlFra</p>
+                <p className="text-4xl leading-none font-black text-amber-300 tabular-nums">{formatInt(pointsUi)}</p>
+
+                {benefitMeta ? (
+                  <div className="mt-3">
+                    <div className="flex items-center justify-between text-[11px] text-slate-200/80">
+                      <span>Progreso al próximo canje</span>
+                      <span className="font-bold">{Math.round(benefitMeta.pct * 100)}%</span>
+                    </div>
+                    <div className="mt-1 h-2 rounded-full bg-white/10 overflow-hidden border border-white/10">
+                      <div
+                        className="h-full bg-amber-300/90 rounded-full transition-[width] duration-500"
+                        style={{ width: `${clamp(benefitMeta.pct * 100, 0, 100)}%` }}
+                      />
+                    </div>
+                    <div className="mt-1 text-[11px] text-slate-200/75">
+                      Objetivo: {formatInt(benefitMeta.cost)} pts
+                    </div>
                   </div>
-                  <div className="mt-1 h-2 rounded-full bg-white/10 overflow-hidden border border-white/10">
-                    <div
-                      className="h-full bg-amber-300/90 rounded-full transition-[width] duration-500"
-                      style={{ width: `${clamp(levelMeta.pct * 100, 0, 100)}%` }}
-                    />
-                  </div>
-                </div>
+                ) : (
+                  <p className="text-[11px] text-slate-200/75 mt-3">
+                    Publicá al menos 1 beneficio activo para ver el progreso al próximo canje.
+                  </p>
+                )}
               </div>
 
               <Link
@@ -881,7 +738,7 @@ export default function DashboardClient() {
         </div>
       </div>
 
-      {/* SELL0S */}
+      {/* SELLOS (solo acá, no duplicados) */}
       <div className="px-4 sm:px-6 -mt-4 relative z-20">
         <StampGrid current={stamps} onRedeem={handleRedeem} redeeming={redeeming} />
         {redeemError && (
@@ -971,23 +828,8 @@ export default function DashboardClient() {
                 <div>
                   <p className="text-sm font-extrabold text-slate-900">Novedades en camino</p>
                   <p className="text-sm text-slate-600">
-                    Mientras tanto, revisá Beneficios y la Carta para ver lo nuevo del día.
+                    Si publicás una noticia, acá te mostramos las 2 últimas automáticamente.
                   </p>
-
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <Link
-                      href="/beneficios"
-                      className="text-xs font-bold px-3 py-2 rounded-xl bg-emerald-600 text-white hover:bg-emerald-500 transition"
-                    >
-                      Ver Beneficios
-                    </Link>
-                    <Link
-                      href="/carta"
-                      className="text-xs font-bold px-3 py-2 rounded-xl bg-slate-100 text-slate-900 border border-slate-200 hover:bg-slate-200 transition"
-                    >
-                      Ver Carta
-                    </Link>
-                  </div>
                 </div>
               </div>
             </div>
