@@ -28,20 +28,22 @@ function formatInt(n: number) {
   }
 }
 
-/** ✅ Media responsive (evita alturas fijas que recortan distinto en PWA móvil) */
+/** ✅ Media responsive */
 function ResponsiveMedia({
   src,
   alt,
   aspectRatio = "16/9",
   fit = "cover",
+  bgClassName = "bg-slate-100",
 }: {
   src: string;
   alt: string;
   aspectRatio?: string;
   fit?: "cover" | "contain";
+  bgClassName?: string;
 }) {
   return (
-    <div className="relative w-full overflow-hidden bg-slate-100" style={{ aspectRatio }}>
+    <div className={`relative w-full overflow-hidden ${bgClassName}`} style={{ aspectRatio }}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={src}
@@ -336,11 +338,10 @@ function StampGrid({
   );
 }
 
-/** ✅ Carrusel Axion: SOLO imagen (sin overlays), swipe en móvil, flechas solo desktop, dots mínimos */
+/** ✅ Carrusel Axion: SOLO imagen, sin click, swipe en móvil, flechas solo desktop, dots mínimos */
 type BannerItem = {
   id: string;
   imageSrc?: string;
-  href: string;
   alt?: string;
 };
 
@@ -376,7 +377,7 @@ function BannerCarousel({ items }: { items: BannerItem[] }) {
     dragging.current = true;
   }
   function onTouchMove() {
-    // no-op: decidimos en touch end
+    // no-op
   }
   function onTouchEnd(e: React.TouchEvent) {
     if (!dragging.current || startX.current == null) return;
@@ -396,10 +397,7 @@ function BannerCarousel({ items }: { items: BannerItem[] }) {
   const current = safeItems[idx];
 
   const bgFallback = (
-    <div
-      className="w-full bg-linear-to-br from-slate-950 via-slate-900 to-slate-800"
-      style={{ aspectRatio: "21/9" }}
-    />
+    <div className="w-full bg-linear-to-br from-slate-950 via-slate-900 to-slate-800" style={{ aspectRatio: "16/9" }} />
   );
 
   const showImg = !!current.imageSrc && imgOk[current.id] !== false;
@@ -407,31 +405,31 @@ function BannerCarousel({ items }: { items: BannerItem[] }) {
   return (
     <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
       <div className="relative" onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
-        <Link href={current.href} className="block">
-          {showImg ? (
-            <div className="relative">
-              <ResponsiveMedia
-                src={current.imageSrc as string}
-                alt={current.alt || "Banner AlFra"}
-                aspectRatio="21/9"
-                fit="cover"
-              />
-              {/* chequeo imagen */}
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={current.imageSrc as string}
-                alt=""
-                className="hidden"
-                onError={() => setImgOk((p) => ({ ...p, [current.id]: false }))}
-                onLoad={() => setImgOk((p) => ({ ...p, [current.id]: true }))}
-              />
-            </div>
-          ) : (
-            bgFallback
-          )}
-        </Link>
+        {/* SOLO VISUAL: sin Link, sin navegación */}
+        {showImg ? (
+          <div className="relative">
+            <ResponsiveMedia
+              src={current.imageSrc as string}
+              alt={current.alt || "Banner AlFra"}
+              aspectRatio="16/9"
+              fit="contain"
+              bgClassName="bg-slate-950"
+            />
+            {/* chequeo imagen */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={current.imageSrc as string}
+              alt=""
+              className="hidden"
+              onError={() => setImgOk((p) => ({ ...p, [current.id]: false }))}
+              onLoad={() => setImgOk((p) => ({ ...p, [current.id]: true }))}
+            />
+          </div>
+        ) : (
+          bgFallback
+        )}
 
-        {/* Flechas SOLO desktop (hidden en móvil) */}
+        {/* Flechas SOLO desktop */}
         {total > 1 && (
           <>
             <button
@@ -505,7 +503,7 @@ function DashboardSkeleton() {
   );
 }
 
-/** Animación suave del número (micro feedback PRO) */
+/** Animación suave del número */
 function animateNumber(from: number, to: number, ms: number, onUpdate: (v: number) => void) {
   const start = performance.now();
   const diff = to - from;
@@ -546,7 +544,6 @@ export default function DashboardClient() {
   const [stamps, setStamps] = useState(0);
   const [news, setNews] = useState<NewsRow[]>([]);
 
-  // ✅ Modal novedades
   const [newsModalOpen, setNewsModalOpen] = useState(false);
   const [selectedNews, setSelectedNews] = useState<NewsRow | null>(null);
 
@@ -559,21 +556,19 @@ export default function DashboardClient() {
     setSelectedNews(null);
   }
 
-  // ✅ Banners fijos (solo imagen)
+  // ✅ Banners SOLO imagen (sin href)
   const banners: BannerItem[] = useMemo(
     () => [
-      { id: "b1", imageSrc: "/banners/banner-1.jpg", href: "/carta", alt: "Banner 1" },
-      { id: "b2", imageSrc: "/banners/banner-2.jpg", href: "/carta", alt: "Banner 2" },
-      { id: "b3", imageSrc: "/banners/banner-3.jpg", href: "/beneficios", alt: "Banner 3" },
+      { id: "b1", imageSrc: "/banners/banner-1.jpg", alt: "Banner 1" },
+      { id: "b2", imageSrc: "/banners/banner-2.jpg", alt: "Banner 2" },
+      { id: "b3", imageSrc: "/banners/banner-3.jpg", alt: "Banner 3" },
     ],
     []
   );
 
-  // UI-only
   const [pointsUi, setPointsUi] = useState(0);
   const prevPointsRef = useRef<number>(0);
 
-  // Próximo beneficio real (mínimo points_cost publicado/activo)
   const [nextBenefit, setNextBenefit] = useState<null | { title: string; cost: number }>(null);
 
   const [redeeming, setRedeeming] = useState(false);
@@ -604,7 +599,6 @@ export default function DashboardClient() {
     }
   }, [voucher?.code]);
 
-  // micro-animación puntos
   useEffect(() => {
     const prev = prevPointsRef.current;
     const next = Number(points || 0);
@@ -705,7 +699,6 @@ export default function DashboardClient() {
 
       await refreshWallets(userId);
 
-      // ✅ Próximo beneficio real
       try {
         const { data: bData } = await supabase
           .from("beneficios")
@@ -726,7 +719,6 @@ export default function DashboardClient() {
         setNextBenefit(null);
       }
 
-      // ✅ News: solo publicadas
       try {
         const { data: newsData } = await supabase
           .from("news")
@@ -784,7 +776,6 @@ export default function DashboardClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router, searchParams]);
 
-  // ✅ cerrar modal news con ESC
   useEffect(() => {
     if (!newsModalOpen) return;
     const onKey = (e: KeyboardEvent) => {
@@ -1071,13 +1062,13 @@ export default function DashboardClient() {
         </div>
       </div>
 
-      {/* ✅ BANNERS (Axion: solo imagen) */}
+      {/* ✅ BANNERS (solo imagen, sin click) */}
       <div className="px-4 sm:px-6 mt-5">
         <BannerCarousel items={banners} />
       </div>
 
-      {/* SELLOS */}
-      <div className="px-4 sm:px-6 -mt-4 relative z-20">
+      {/* SELLOS (sin superposición) */}
+      <div className="px-4 sm:px-6 mt-4">
         <StampGrid current={stamps} onRedeem={handleRedeem} redeeming={redeeming} />
         {redeemError && (
           <div className="mt-3 text-xs font-bold text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
@@ -1165,7 +1156,9 @@ export default function DashboardClient() {
                 </div>
                 <div>
                   <p className="text-sm font-extrabold text-slate-900">Novedades en camino</p>
-                  <p className="text-sm text-slate-600">Si publicás una noticia, acá te mostramos las 2 últimas automáticamente.</p>
+                  <p className="text-sm text-slate-600">
+                    Si publicás una noticia, acá te mostramos las 2 últimas automáticamente.
+                  </p>
                 </div>
               </div>
             </div>
@@ -1183,6 +1176,7 @@ export default function DashboardClient() {
                     alt={String(item.title || "Novedad")}
                     aspectRatio="21/9"
                     fit="contain"
+                    bgClassName="bg-slate-100"
                   />
                 ) : (
                   <div className="w-full bg-linear-to-br from-slate-100 via-white to-slate-100" style={{ aspectRatio: "16/9" }} />
@@ -1196,7 +1190,9 @@ export default function DashboardClient() {
                       </span>
                     ) : null}
                     {item.published_at || item.created_at ? (
-                      <span className="text-[11px] text-slate-500">{formatDateTime(String(item.published_at || item.created_at))}</span>
+                      <span className="text-[11px] text-slate-500">
+                        {formatDateTime(String(item.published_at || item.created_at))}
+                      </span>
                     ) : null}
                   </div>
 
