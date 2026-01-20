@@ -37,7 +37,7 @@ function ResponsiveMedia({
 }: {
   src: string;
   alt: string;
-  aspectRatio?: string; // "16/9" | "21/9" | "1/1" etc
+  aspectRatio?: string;
   fit?: "cover" | "contain";
 }) {
   return (
@@ -147,13 +147,12 @@ function ConfettiBurst({ onDone }: { onDone: () => void }) {
   }, [onDone]);
 
   const pieces = useMemo(() => {
-    // determinístico (no random) para evitar “saltos” visuales raros
     return Array.from({ length: 18 }).map((_, i) => {
-      const left = (i * 100) / 18; // %
-      const delay = (i % 6) * 40; // ms
-      const drift = (i % 2 === 0 ? 1 : -1) * (10 + (i % 5) * 6); // px
-      const rot = (i % 2 === 0 ? 1 : -1) * (120 + (i % 4) * 60); // deg
-      const size = 6 + (i % 4) * 2; // px
+      const left = (i * 100) / 18;
+      const delay = (i % 6) * 40;
+      const drift = (i % 2 === 0 ? 1 : -1) * (10 + (i % 5) * 6);
+      const rot = (i % 2 === 0 ? 1 : -1) * (120 + (i % 4) * 60);
+      const size = 6 + (i % 4) * 2;
       return { left, delay, drift, rot, size };
     });
   }, []);
@@ -193,7 +192,6 @@ function StampGrid({
   const safe = Math.max(0, Math.min(total, Number(current || 0)));
   const canRedeem = safe >= total;
 
-  // ✅ Celebración solo cuando cruza a 8/8 (no en cada render)
   const prevRef = useRef<number>(safe);
   const [celebrate, setCelebrate] = useState(false);
 
@@ -208,7 +206,6 @@ function StampGrid({
 
   return (
     <div className="relative">
-      {/* CSS local simple */}
       <style jsx global>{`
         .alfra-glow {
           animation: alfraGlow 900ms ease-in-out 2;
@@ -339,6 +336,178 @@ function StampGrid({
   );
 }
 
+/** ✅ Carrusel PRO (3 banners fijos, sin libs, sin backend) */
+type BannerItem = {
+  id: string;
+  title: string;
+  subtitle: string;
+  imageSrc?: string;
+  href: string;
+  badge?: string;
+  cta?: string;
+};
+
+function BannerCarousel({ items }: { items: BannerItem[] }) {
+  const [idx, setIdx] = useState(0);
+  const [imgOk, setImgOk] = useState<Record<string, boolean>>({});
+  const startX = useRef<number | null>(null);
+  const dragging = useRef(false);
+
+  const safeItems = items?.length ? items : [];
+  const total = safeItems.length;
+
+  useEffect(() => {
+    if (total <= 1) return;
+    const t = window.setInterval(() => {
+      setIdx((p) => (p + 1) % total);
+    }, 6500);
+    return () => window.clearInterval(t);
+  }, [total]);
+
+  function prev() {
+    if (!total) return;
+    setIdx((p) => (p - 1 + total) % total);
+  }
+  function next() {
+    if (!total) return;
+    setIdx((p) => (p + 1) % total);
+  }
+
+  function onTouchStart(e: React.TouchEvent) {
+    if (total <= 1) return;
+    startX.current = e.touches[0]?.clientX ?? null;
+    dragging.current = true;
+  }
+  function onTouchMove(e: React.TouchEvent) {
+    if (!dragging.current || startX.current == null) return;
+    // no-op: solo medimos al final para decidir
+  }
+  function onTouchEnd(e: React.TouchEvent) {
+    if (!dragging.current || startX.current == null) return;
+    const endX = e.changedTouches[0]?.clientX ?? startX.current;
+    const dx = endX - startX.current;
+    dragging.current = false;
+    startX.current = null;
+
+    if (Math.abs(dx) < 40) return;
+    if (dx > 0) prev();
+    else next();
+  }
+
+  if (total === 0) return null;
+
+  const current = safeItems[idx];
+
+  const bgFallback = (
+    <div
+      className="w-full bg-linear-to-br from-slate-950 via-slate-900 to-slate-800"
+      style={{ aspectRatio: "21/9" }}
+    />
+  );
+
+  const showImg = !!current.imageSrc && imgOk[current.id] !== false;
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+      <div
+        className="relative"
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+      >
+        <Link href={current.href} className="block">
+          {showImg ? (
+            <div className="relative">
+              <ResponsiveMedia
+                src={current.imageSrc as string}
+                alt={current.title}
+                aspectRatio="21/9"
+                fit="cover"
+              />
+              {/* chequeo imagen */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={current.imageSrc as string}
+                alt=""
+                className="hidden"
+                onError={() => setImgOk((p) => ({ ...p, [current.id]: false }))}
+                onLoad={() => setImgOk((p) => ({ ...p, [current.id]: true }))}
+              />
+              <div className="absolute inset-0 bg-linear-to-t from-black/60 via-black/10 to-transparent pointer-events-none" />
+            </div>
+          ) : (
+            <div className="relative">
+              {bgFallback}
+              <div className="absolute inset-0 bg-linear-to-t from-black/60 via-black/10 to-transparent pointer-events-none" />
+            </div>
+          )}
+
+          <div className="absolute inset-x-0 bottom-0 p-4">
+            <div className="flex items-center gap-2 mb-1">
+              {current.badge ? (
+                <span className="inline-flex items-center px-2 py-1 rounded-full text-[10px] font-black uppercase tracking-wide bg-amber-300 text-slate-900">
+                  {current.badge}
+                </span>
+              ) : null}
+              <span className="text-[10px] font-bold text-white/80">AlFra</span>
+            </div>
+
+            <div className="text-white">
+              <div className="text-lg font-black leading-tight">{current.title}</div>
+              <div className="text-sm text-white/85 mt-1">{current.subtitle}</div>
+              {current.cta ? (
+                <div className="mt-3 inline-flex items-center gap-2 text-[12px] font-black bg-white/10 border border-white/15 px-3 py-2 rounded-xl backdrop-blur">
+                  {current.cta}
+                  <span aria-hidden="true">→</span>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </Link>
+
+        {/* Flechas */}
+        {total > 1 && (
+          <>
+            <button
+              type="button"
+              onClick={prev}
+              aria-label="Anterior"
+              className="absolute left-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-2xl bg-white/10 hover:bg-white/15 border border-white/15 text-white flex items-center justify-center backdrop-blur transition active:scale-95"
+            >
+              <span aria-hidden="true">‹</span>
+            </button>
+            <button
+              type="button"
+              onClick={next}
+              aria-label="Siguiente"
+              className="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-2xl bg-white/10 hover:bg-white/15 border border-white/15 text-white flex items-center justify-center backdrop-blur transition active:scale-95"
+            >
+              <span aria-hidden="true">›</span>
+            </button>
+          </>
+        )}
+      </div>
+
+      {/* Dots */}
+      {total > 1 && (
+        <div className="flex items-center justify-center gap-2 py-3 bg-white">
+          {safeItems.map((it, i) => (
+            <button
+              key={it.id}
+              type="button"
+              onClick={() => setIdx(i)}
+              aria-label={`Ir al banner ${i + 1}`}
+              className={`h-2 rounded-full transition ${
+                i === idx ? "w-6 bg-slate-900" : "w-2 bg-slate-300"
+              }`}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function makeBarcodeSvg(code: string) {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   JsBarcode(svg, code, {
@@ -413,7 +582,7 @@ export default function DashboardClient() {
   const [stamps, setStamps] = useState(0);
   const [news, setNews] = useState<NewsRow[]>([]);
 
-  // ✅ Modal novedades
+  // ✅ Modal novedades (si ya lo venías usando)
   const [newsModalOpen, setNewsModalOpen] = useState(false);
   const [selectedNews, setSelectedNews] = useState<NewsRow | null>(null);
 
@@ -425,6 +594,40 @@ export default function DashboardClient() {
     setNewsModalOpen(false);
     setSelectedNews(null);
   }
+
+  // ✅ Banners fijos PRO (sin backend)
+  const banners: BannerItem[] = useMemo(
+    () => [
+      {
+        id: "b1",
+        badge: "Top",
+        title: "Comida estrella",
+        subtitle: "Probá lo que más sale hoy. Sin vueltas.",
+        imageSrc: "/banners/banner-1.jpg",
+        href: "/carta",
+        cta: "Ver carta",
+      },
+      {
+        id: "b2",
+        badge: "Birra",
+        title: "Birra de la semana",
+        subtitle: "Pedí una pinta y sumás sellos.",
+        imageSrc: "/banners/banner-2.jpg",
+        href: "/carta",
+        cta: "Pedir ahora",
+      },
+      {
+        id: "b3",
+        badge: "Evento",
+        title: "Noche AlFra",
+        subtitle: "Promo + ambiente. Entrás y ya estás.",
+        imageSrc: "/banners/banner-3.jpg",
+        href: "/beneficios",
+        cta: "Ver promos",
+      },
+    ],
+    []
+  );
 
   // UI-only
   const [pointsUi, setPointsUi] = useState(0);
@@ -641,7 +844,7 @@ export default function DashboardClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router, searchParams]);
 
-  // ✅ cerrar modal con ESC
+  // ✅ cerrar modal news con ESC
   useEffect(() => {
     if (!newsModalOpen) return;
     const onKey = (e: KeyboardEvent) => {
@@ -935,7 +1138,12 @@ export default function DashboardClient() {
         </div>
       </div>
 
-      {/* SELLOS (con glow + confetti al completar) */}
+      {/* ✅ BANNERS VISUALES (PRO) */}
+      <div className="px-4 sm:px-6 mt-5">
+        <BannerCarousel items={banners} />
+      </div>
+
+      {/* SELLOS */}
       <div className="px-4 sm:px-6 -mt-4 relative z-20">
         <StampGrid current={stamps} onRedeem={handleRedeem} redeeming={redeeming} />
         {redeemError && (
@@ -1009,7 +1217,7 @@ export default function DashboardClient() {
         </div>
       </div>
 
-      {/* NOVEDADES (cards + modal) */}
+      {/* NOVEDADES */}
       <div className="px-4 sm:px-6 mt-6">
         <div className="flex justify-between items-center mb-3">
           <h2 className="font-bold text-slate-800">Novedades & Eventos</h2>
@@ -1076,19 +1284,15 @@ export default function DashboardClient() {
         </div>
       </div>
 
-      {/* ✅ MODAL NOVEDAD (solo esto) */}
+      {/* MODAL NOVEDAD */}
       {newsModalOpen && selectedNews && (
         <div className="fixed inset-0 z-999 bg-black/50 flex items-center justify-center p-4">
           <div className="absolute inset-0" onClick={closeNewsModal} />
 
           <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden max-h-[calc(100dvh-2rem)] flex flex-col">
             <div className="p-4 bg-slate-900 text-white shrink-0">
-              <p className="text-xs font-bold text-emerald-300 uppercase tracking-wider">
-                Novedades AlFra
-              </p>
-              <h3 className="text-lg font-black leading-snug">
-                {selectedNews.title || "Novedad"}
-              </h3>
+              <p className="text-xs font-bold text-emerald-300 uppercase tracking-wider">Novedades AlFra</p>
+              <h3 className="text-lg font-black leading-snug">{selectedNews.title || "Novedad"}</h3>
 
               <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-200/80">
                 {selectedNews.category ? (
