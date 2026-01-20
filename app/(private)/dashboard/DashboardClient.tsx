@@ -411,7 +411,7 @@ function BannerCarousel({ items }: { items: BannerItem[] }) {
             <ResponsiveMedia
               src={current.imageSrc as string}
               alt={current.alt || "Banner AlFra"}
-              aspectRatio="16/9"
+              aspectRatio="21/9"
               fit="contain"
               bgClassName="bg-slate-950"
             />
