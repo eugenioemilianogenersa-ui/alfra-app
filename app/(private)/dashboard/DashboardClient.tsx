@@ -336,15 +336,12 @@ function StampGrid({
   );
 }
 
-/** ✅ Carrusel PRO (3 banners fijos, sin libs, sin backend) */
+/** ✅ Carrusel Axion: SOLO imagen (sin overlays), swipe en móvil, flechas solo desktop, dots mínimos */
 type BannerItem = {
   id: string;
-  title: string;
-  subtitle: string;
   imageSrc?: string;
   href: string;
-  badge?: string;
-  cta?: string;
+  alt?: string;
 };
 
 function BannerCarousel({ items }: { items: BannerItem[] }) {
@@ -378,14 +375,14 @@ function BannerCarousel({ items }: { items: BannerItem[] }) {
     startX.current = e.touches[0]?.clientX ?? null;
     dragging.current = true;
   }
-  function onTouchMove(e: React.TouchEvent) {
-    if (!dragging.current || startX.current == null) return;
-    // no-op: solo medimos al final para decidir
+  function onTouchMove() {
+    // no-op: decidimos en touch end
   }
   function onTouchEnd(e: React.TouchEvent) {
     if (!dragging.current || startX.current == null) return;
     const endX = e.changedTouches[0]?.clientX ?? startX.current;
     const dx = endX - startX.current;
+
     dragging.current = false;
     startX.current = null;
 
@@ -409,18 +406,13 @@ function BannerCarousel({ items }: { items: BannerItem[] }) {
 
   return (
     <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-      <div
-        className="relative"
-        onTouchStart={onTouchStart}
-        onTouchMove={onTouchMove}
-        onTouchEnd={onTouchEnd}
-      >
+      <div className="relative" onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
         <Link href={current.href} className="block">
           {showImg ? (
             <div className="relative">
               <ResponsiveMedia
                 src={current.imageSrc as string}
-                alt={current.title}
+                alt={current.alt || "Banner AlFra"}
                 aspectRatio="21/9"
                 fit="cover"
               />
@@ -433,46 +425,20 @@ function BannerCarousel({ items }: { items: BannerItem[] }) {
                 onError={() => setImgOk((p) => ({ ...p, [current.id]: false }))}
                 onLoad={() => setImgOk((p) => ({ ...p, [current.id]: true }))}
               />
-              <div className="absolute inset-0 bg-linear-to-t from-black/60 via-black/10 to-transparent pointer-events-none" />
             </div>
           ) : (
-            <div className="relative">
-              {bgFallback}
-              <div className="absolute inset-0 bg-linear-to-t from-black/60 via-black/10 to-transparent pointer-events-none" />
-            </div>
+            bgFallback
           )}
-
-          <div className="absolute inset-x-0 bottom-0 p-4">
-            <div className="flex items-center gap-2 mb-1">
-              {current.badge ? (
-                <span className="inline-flex items-center px-2 py-1 rounded-full text-[10px] font-black uppercase tracking-wide bg-amber-300 text-slate-900">
-                  {current.badge}
-                </span>
-              ) : null}
-              <span className="text-[10px] font-bold text-white/80">AlFra</span>
-            </div>
-
-            <div className="text-white">
-              <div className="text-lg font-black leading-tight">{current.title}</div>
-              <div className="text-sm text-white/85 mt-1">{current.subtitle}</div>
-              {current.cta ? (
-                <div className="mt-3 inline-flex items-center gap-2 text-[12px] font-black bg-white/10 border border-white/15 px-3 py-2 rounded-xl backdrop-blur">
-                  {current.cta}
-                  <span aria-hidden="true">→</span>
-                </div>
-              ) : null}
-            </div>
-          </div>
         </Link>
 
-        {/* Flechas */}
+        {/* Flechas SOLO desktop (hidden en móvil) */}
         {total > 1 && (
           <>
             <button
               type="button"
               onClick={prev}
               aria-label="Anterior"
-              className="absolute left-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-2xl bg-white/10 hover:bg-white/15 border border-white/15 text-white flex items-center justify-center backdrop-blur transition active:scale-95"
+              className="hidden sm:flex absolute left-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-2xl bg-black/20 hover:bg-black/30 border border-white/20 text-white items-center justify-center backdrop-blur transition active:scale-95"
             >
               <span aria-hidden="true">‹</span>
             </button>
@@ -480,7 +446,7 @@ function BannerCarousel({ items }: { items: BannerItem[] }) {
               type="button"
               onClick={next}
               aria-label="Siguiente"
-              className="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-2xl bg-white/10 hover:bg-white/15 border border-white/15 text-white flex items-center justify-center backdrop-blur transition active:scale-95"
+              className="hidden sm:flex absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-2xl bg-black/20 hover:bg-black/30 border border-white/20 text-white items-center justify-center backdrop-blur transition active:scale-95"
             >
               <span aria-hidden="true">›</span>
             </button>
@@ -488,7 +454,7 @@ function BannerCarousel({ items }: { items: BannerItem[] }) {
         )}
       </div>
 
-      {/* Dots */}
+      {/* Dots mínimos */}
       {total > 1 && (
         <div className="flex items-center justify-center gap-2 py-3 bg-white">
           {safeItems.map((it, i) => (
@@ -497,9 +463,7 @@ function BannerCarousel({ items }: { items: BannerItem[] }) {
               type="button"
               onClick={() => setIdx(i)}
               aria-label={`Ir al banner ${i + 1}`}
-              className={`h-2 rounded-full transition ${
-                i === idx ? "w-6 bg-slate-900" : "w-2 bg-slate-300"
-              }`}
+              className={`h-2 rounded-full transition ${i === idx ? "w-6 bg-slate-900" : "w-2 bg-slate-300"}`}
             />
           ))}
         </div>
@@ -582,7 +546,7 @@ export default function DashboardClient() {
   const [stamps, setStamps] = useState(0);
   const [news, setNews] = useState<NewsRow[]>([]);
 
-  // ✅ Modal novedades (si ya lo venías usando)
+  // ✅ Modal novedades
   const [newsModalOpen, setNewsModalOpen] = useState(false);
   const [selectedNews, setSelectedNews] = useState<NewsRow | null>(null);
 
@@ -595,36 +559,12 @@ export default function DashboardClient() {
     setSelectedNews(null);
   }
 
-  // ✅ Banners fijos PRO (sin backend)
+  // ✅ Banners fijos (solo imagen)
   const banners: BannerItem[] = useMemo(
     () => [
-      {
-        id: "b1",
-        badge: "Top",
-        title: "Comida estrella",
-        subtitle: "Probá lo que más sale hoy. Sin vueltas.",
-        imageSrc: "/banners/banner-1.jpg",
-        href: "/carta",
-        cta: "Ver carta",
-      },
-      {
-        id: "b2",
-        badge: "Birra",
-        title: "Birra de la semana",
-        subtitle: "Pedí una pinta y sumás sellos.",
-        imageSrc: "/banners/banner-2.jpg",
-        href: "/carta",
-        cta: "Pedir ahora",
-      },
-      {
-        id: "b3",
-        badge: "Evento",
-        title: "Noche AlFra",
-        subtitle: "Promo + ambiente. Entrás y ya estás.",
-        imageSrc: "/banners/banner-3.jpg",
-        href: "/beneficios",
-        cta: "Ver promos",
-      },
+      { id: "b1", imageSrc: "/banners/banner-1.jpg", href: "/carta", alt: "Banner 1" },
+      { id: "b2", imageSrc: "/banners/banner-2.jpg", href: "/carta", alt: "Banner 2" },
+      { id: "b3", imageSrc: "/banners/banner-3.jpg", href: "/beneficios", alt: "Banner 3" },
     ],
     []
   );
@@ -765,7 +705,7 @@ export default function DashboardClient() {
 
       await refreshWallets(userId);
 
-      // ✅ Próximo beneficio real (mínimo costo publicado/activo)
+      // ✅ Próximo beneficio real
       try {
         const { data: bData } = await supabase
           .from("beneficios")
@@ -786,7 +726,7 @@ export default function DashboardClient() {
         setNextBenefit(null);
       }
 
-      // ✅ News: solo publicadas, orden por published_at (fallback created_at)
+      // ✅ News: solo publicadas
       try {
         const { data: newsData } = await supabase
           .from("news")
@@ -1058,8 +998,7 @@ export default function DashboardClient() {
       : `Te faltan ${formatInt(benefitMeta.remaining)} pts para canjear: ${benefitMeta.title}`
     : "Sumá puntos y canjeá beneficios reales.";
 
-  const selectedDate =
-    selectedNews?.published_at || selectedNews?.created_at || selectedNews?.updated_at || null;
+  const selectedDate = selectedNews?.published_at || selectedNews?.created_at || selectedNews?.updated_at || null;
 
   return (
     <div className="bg-slate-50 min-h-dvh pb-24">
@@ -1097,12 +1036,8 @@ export default function DashboardClient() {
           <div className="mt-4 bg-white/10 backdrop-blur-md p-4 rounded-2xl border border-white/10">
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
-                <p className="text-xs text-emerald-300 font-bold tracking-wider uppercase mb-1">
-                  Tus Puntos AlFra
-                </p>
-                <p className="text-4xl leading-none font-black text-amber-300 tabular-nums">
-                  {formatInt(pointsUi)}
-                </p>
+                <p className="text-xs text-emerald-300 font-bold tracking-wider uppercase mb-1">Tus Puntos AlFra</p>
+                <p className="text-4xl leading-none font-black text-amber-300 tabular-nums">{formatInt(pointsUi)}</p>
 
                 {benefitMeta ? (
                   <div className="mt-3">
@@ -1116,9 +1051,7 @@ export default function DashboardClient() {
                         style={{ width: `${clamp(benefitMeta.pct * 100, 0, 100)}%` }}
                       />
                     </div>
-                    <div className="mt-1 text-[11px] text-slate-200/75">
-                      Objetivo: {formatInt(benefitMeta.cost)} pts
-                    </div>
+                    <div className="mt-1 text-[11px] text-slate-200/75">Objetivo: {formatInt(benefitMeta.cost)} pts</div>
                   </div>
                 ) : (
                   <p className="text-[11px] text-slate-200/75 mt-3">
@@ -1138,7 +1071,7 @@ export default function DashboardClient() {
         </div>
       </div>
 
-      {/* ✅ BANNERS VISUALES (PRO) */}
+      {/* ✅ BANNERS (Axion: solo imagen) */}
       <div className="px-4 sm:px-6 mt-5">
         <BannerCarousel items={banners} />
       </div>
@@ -1232,9 +1165,7 @@ export default function DashboardClient() {
                 </div>
                 <div>
                   <p className="text-sm font-extrabold text-slate-900">Novedades en camino</p>
-                  <p className="text-sm text-slate-600">
-                    Si publicás una noticia, acá te mostramos las 2 últimas automáticamente.
-                  </p>
+                  <p className="text-sm text-slate-600">Si publicás una noticia, acá te mostramos las 2 últimas automáticamente.</p>
                 </div>
               </div>
             </div>
@@ -1254,10 +1185,7 @@ export default function DashboardClient() {
                     fit="contain"
                   />
                 ) : (
-                  <div
-                    className="w-full bg-linear-to-br from-slate-100 via-white to-slate-100"
-                    style={{ aspectRatio: "16/9" }}
-                  />
+                  <div className="w-full bg-linear-to-br from-slate-100 via-white to-slate-100" style={{ aspectRatio: "16/9" }} />
                 )}
 
                 <div className="p-4">
@@ -1268,9 +1196,7 @@ export default function DashboardClient() {
                       </span>
                     ) : null}
                     {item.published_at || item.created_at ? (
-                      <span className="text-[11px] text-slate-500">
-                        {formatDateTime(String(item.published_at || item.created_at))}
-                      </span>
+                      <span className="text-[11px] text-slate-500">{formatDateTime(String(item.published_at || item.created_at))}</span>
                     ) : null}
                   </div>
 
@@ -1315,14 +1241,10 @@ export default function DashboardClient() {
               ) : null}
 
               <div className="p-4">
-                {selectedNews.summary ? (
-                  <p className="text-sm font-bold text-slate-800">{selectedNews.summary}</p>
-                ) : null}
+                {selectedNews.summary ? <p className="text-sm font-bold text-slate-800">{selectedNews.summary}</p> : null}
 
                 {selectedNews.content ? (
-                  <div className="mt-3 text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">
-                    {selectedNews.content}
-                  </div>
+                  <div className="mt-3 text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">{selectedNews.content}</div>
                 ) : (
                   <p className="mt-3 text-sm text-slate-600">Sin contenido.</p>
                 )}
@@ -1376,17 +1298,11 @@ export default function DashboardClient() {
               </div>
 
               <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={handleCopyCode}
-                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl"
-                >
+                <button onClick={handleCopyCode} className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl">
                   Copiar código
                 </button>
 
-                <button
-                  onClick={handleSavePdf}
-                  className="bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 rounded-xl"
-                >
+                <button onClick={handleSavePdf} className="bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 rounded-xl">
                   Guardar PDF
                 </button>
 
@@ -1407,16 +1323,11 @@ export default function DashboardClient() {
                 </button>
               </div>
 
-              <button
-                onClick={() => setVoucher(null)}
-                className="w-full bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold py-3 rounded-xl"
-              >
+              <button onClick={() => setVoucher(null)} className="w-full bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold py-3 rounded-xl">
                 Cerrar
               </button>
 
-              <p className="text-[11px] text-slate-500">
-                Mostralo en caja para canjear. Válido por 10 días desde la emisión.
-              </p>
+              <p className="text-[11px] text-slate-500">Mostralo en caja para canjear. Válido por 10 días desde la emisión.</p>
             </div>
           </div>
         </div>
