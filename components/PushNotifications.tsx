@@ -1,4 +1,3 @@
-// C:\Dev\alfra-app\components\PushNotifications.tsx
 "use client";
 
 import { useEffect } from "react";
@@ -8,7 +7,6 @@ export default function PushNotifications() {
   useEffect(() => {
     const supported =
       typeof window !== "undefined" &&
-      window.isSecureContext &&
       "serviceWorker" in navigator &&
       "PushManager" in window &&
       "Notification" in window;
@@ -19,37 +17,30 @@ export default function PushNotifications() {
 
     (async () => {
       try {
-        // ✅ token real
+        // ✅ Tomamos el token real de sesión
         const { data } = await supabase.auth.getSession();
         const session = data?.session;
         if (!session?.access_token) return;
 
-        // 1) Registrar SW (si ya existe, no rompe)
-        await navigator.serviceWorker.register("/sw.js");
+        // 1) Registrar SW
+        const reg = await navigator.serviceWorker.register("/sw.js");
 
-        // ✅ 2) Esperar a que el SW esté ACTIVO (evita: "no active Service Worker")
-        const readyReg = await navigator.serviceWorker.ready;
-
-        // 3) Pedir permiso
+        // 2) Pedir permiso
         if (Notification.permission === "default") {
           await Notification.requestPermission();
         }
         if (Notification.permission !== "granted") return;
 
-        // 4) VAPID
+        // 3) Subscribir
         const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
         if (!vapidPublicKey) return;
 
-        // ✅ 5) No re-suscribir si ya existe
-        const existing = await readyReg.pushManager.getSubscription();
-        const sub =
-          existing ??
-          (await readyReg.pushManager.subscribe({
-            userVisibleOnly: true,
-            applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
-          }));
+        const sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
+        });
 
-        // 6) Guardar subscription
+        // 4) Guardar subscription (backend decide user_id)
         await fetch("/api/push/subscribe", {
           method: "POST",
           headers: {
