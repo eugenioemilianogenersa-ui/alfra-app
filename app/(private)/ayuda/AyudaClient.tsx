@@ -3,68 +3,76 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 
-const CHATBASE_SCRIPT_ID = "H9jhv5J1pN5hjSGBjGGxx"; // ✅ tal cual te lo da Chatbase
+const CHATBASE_SCRIPT_ID = "chatbase-script";
 
-function ensureChatbaseLoaded() {
-  // Si ya está cargado el script, no hacemos nada
+function loadChatbase() {
   if (document.getElementById(CHATBASE_SCRIPT_ID)) return;
 
-  // ✅ Snippet EXACTO de Chatbase (sin “correcciones”)
-  (function () {
-    const w = window as any;
+  const w = window as any;
 
-    if (!w.chatbase || w.chatbase("getState") !== "initialized") {
-      w.chatbase = (...arguments_: any[]) => {
-        if (!w.chatbase.q) w.chatbase.q = [];
-        w.chatbase.q.push(arguments_);
-      };
-
-      w.chatbase = new Proxy(w.chatbase, {
-        get(target, prop) {
-          if (prop === "q") return (target as any).q;
-          return (...args: any[]) => (target as any)(prop, ...args);
-        },
-      });
-    }
-
-    const onLoad = function () {
-      if (document.getElementById(CHATBASE_SCRIPT_ID)) return;
-
-      const script = document.createElement("script");
-      script.src = "https://www.chatbase.co/embed.min.js";
-      script.id = CHATBASE_SCRIPT_ID;
-      (script as any).domain = "www.chatbase.co";
-      document.body.appendChild(script);
+  // Init proxy (snippet oficial)
+  if (!w.chatbase || w.chatbase("getState") !== "initialized") {
+    w.chatbase = (...args: any[]) => {
+      if (!w.chatbase.q) w.chatbase.q = [];
+      w.chatbase.q.push(args);
     };
 
-    if (document.readyState === "complete") onLoad();
-    else window.addEventListener("load", onLoad);
-  })();
+    w.chatbase = new Proxy(w.chatbase, {
+      get(target, prop) {
+        if (prop === "q") return (target as any).q;
+        return (...args: any[]) => (target as any)(prop, ...args);
+      },
+    });
+  }
+
+  const script = document.createElement("script");
+  script.id = CHATBASE_SCRIPT_ID;
+  script.src = "https://www.chatbase.co/embed.min.js";
+  (script as any).domain = "www.chatbase.co";
+  document.body.appendChild(script);
+}
+
+function unloadChatbase() {
+  const w = window as any;
+
+  // Eliminar script
+  const script = document.getElementById(CHATBASE_SCRIPT_ID);
+  if (script) script.remove();
+
+  // Eliminar iframes / botones creados por Chatbase
+  document
+    .querySelectorAll("iframe[src*='chatbase'], div[id*='chatbase']")
+    .forEach((el) => el.remove());
+
+  // Reset global
+  if (w.chatbase) {
+    try {
+      delete w.chatbase;
+    } catch {
+      w.chatbase = undefined;
+    }
+  }
 }
 
 export default function AyudaClient() {
   const [openTried, setOpenTried] = useState(false);
 
   useEffect(() => {
-    ensureChatbaseLoaded();
+    loadChatbase();
+
+    return () => {
+      unloadChatbase(); // 🔥 limpieza TOTAL al salir de /ayuda
+    };
   }, []);
 
   const tryOpenChat = () => {
     setOpenTried(true);
-    try {
-      const w = window as any;
-      if (typeof w.chatbase === "function") {
-        // No siempre existe, pero si está, lo intentamos.
-        try {
-          w.chatbase("open");
-          return;
-        } catch {}
-        try {
-          w.chatbase("show");
-          return;
-        } catch {}
-      }
-    } catch {}
+    const w = window as any;
+    if (typeof w.chatbase === "function") {
+      try {
+        w.chatbase("open");
+      } catch {}
+    }
   };
 
   return (
@@ -74,7 +82,9 @@ export default function AyudaClient() {
           <p className="text-xs font-bold text-emerald-300 uppercase tracking-wider">
             Soporte
           </p>
+
           <h1 className="text-2xl font-black mt-1">Ayuda ALFRA IA</h1>
+
           <p className="text-sm text-slate-200 mt-2 max-w-2xl">
             Consultas sobre la app, puntos, sellos, vouchers y derivación a WhatsApp.
           </p>
