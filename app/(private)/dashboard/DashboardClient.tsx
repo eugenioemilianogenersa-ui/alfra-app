@@ -1,4 +1,3 @@
-// C:\Dev\alfra-app\app\(private)\dashboard\DashboardClient.tsx
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -6,7 +5,6 @@ import { createClient } from "@/lib/supabaseClient";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import JsBarcode from "jsbarcode";
-import Image from "next/image";
 
 function formatDateTime(dt: string) {
   try {
@@ -29,52 +27,32 @@ function formatInt(n: number) {
   }
 }
 
-/** ✅ Media responsive (local: next/image | remoto: <img>) */
+/** ✅ Media responsive */
 function ResponsiveMedia({
   src,
   alt,
   aspectRatio = "16/9",
   fit = "cover",
   bgClassName = "bg-slate-100",
-  priority = false,
-  loading,
-  sizes = "100vw",
 }: {
   src: string;
   alt: string;
   aspectRatio?: string;
   fit?: "cover" | "contain";
   bgClassName?: string;
-  priority?: boolean;
-  loading?: "eager" | "lazy";
-  sizes?: string;
 }) {
-  const isLocal = src.startsWith("/");
-
   return (
     <div className={`relative w-full overflow-hidden ${bgClassName}`} style={{ aspectRatio }}>
-      {isLocal ? (
-        <Image
-          src={src}
-          alt={alt}
-          fill
-          priority={priority}
-          sizes={sizes}
-          // ✅ Reduce desperdicio en mobile; Next sirve tamaños adecuados + WebP/AVIF
-          style={{ objectFit: fit === "contain" ? "contain" : "cover", objectPosition: "center" }}
-        />
-      ) : (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={src}
-          alt={alt}
-          className={`absolute inset-0 w-full h-full ${fit === "contain" ? "object-contain" : "object-cover"} object-center`}
-          loading={loading || "lazy"}
-          decoding="async"
-          // ✅ en algunos navegadores ayuda a LCP cuando es el elemento principal
-          {...(loading === "eager" ? ({ fetchPriority: "high" } as any) : {})}
-        />
-      )}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={src}
+        alt={alt}
+        className={`absolute inset-0 w-full h-full ${
+          fit === "contain" ? "object-contain" : "object-cover"
+        } object-center`}
+        loading="lazy"
+        decoding="async"
+      />
     </div>
   );
 }
@@ -359,7 +337,7 @@ function StampGrid({
   );
 }
 
-/** ✅ Carrusel Axion */
+/** ✅ Carrusel Axion: SOLO imagen, sin click, swipe en móvil, flechas solo desktop, dots mínimos */
 type BannerItem = {
   id: string;
   imageSrc?: string;
@@ -397,7 +375,9 @@ function BannerCarousel({ items }: { items: BannerItem[] }) {
     startX.current = e.touches[0]?.clientX ?? null;
     dragging.current = true;
   }
-  function onTouchMove() {}
+  function onTouchMove() {
+    // no-op
+  }
   function onTouchEnd(e: React.TouchEvent) {
     if (!dragging.current || startX.current == null) return;
     const endX = e.changedTouches[0]?.clientX ?? startX.current;
@@ -424,6 +404,7 @@ function BannerCarousel({ items }: { items: BannerItem[] }) {
   return (
     <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
       <div className="relative" onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
+        {/* SOLO VISUAL: sin Link, sin navegación */}
         {showImg ? (
           <div className="relative">
             <ResponsiveMedia
@@ -432,12 +413,8 @@ function BannerCarousel({ items }: { items: BannerItem[] }) {
               aspectRatio="21/9"
               fit="contain"
               bgClassName="bg-slate-950"
-              // ✅ El primer banner suele ser LCP: prioridad y “eager”
-              priority={idx === 0}
-              loading={idx === 0 ? "eager" : "lazy"}
-              sizes="(max-width: 640px) 100vw, 640px"
             />
-            {/* chequeo imagen (fallback) */}
+            {/* chequeo imagen */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={current.imageSrc as string}
@@ -451,6 +428,7 @@ function BannerCarousel({ items }: { items: BannerItem[] }) {
           bgFallback
         )}
 
+        {/* Flechas SOLO desktop */}
         {total > 1 && (
           <>
             <button
@@ -473,6 +451,7 @@ function BannerCarousel({ items }: { items: BannerItem[] }) {
         )}
       </div>
 
+      {/* Dots mínimos */}
       {total > 1 && (
         <div className="flex items-center justify-center gap-2 py-3 bg-white">
           {safeItems.map((it, i) => (
@@ -523,6 +502,7 @@ function DashboardSkeleton() {
   );
 }
 
+/** Animación suave del número */
 function animateNumber(from: number, to: number, ms: number, onUpdate: (v: number) => void) {
   const start = performance.now();
   const diff = to - from;
@@ -575,6 +555,7 @@ export default function DashboardClient() {
     setSelectedNews(null);
   }
 
+  // ✅ Banners SOLO imagen (sin href)
   const banners: BannerItem[] = useMemo(
     () => [
       { id: "b1", imageSrc: "/banners/banner-1.jpg", alt: "Banner 1" },
@@ -1017,6 +998,7 @@ export default function DashboardClient() {
         </div>
       )}
 
+      {/* HERO (solo PUNTOS) */}
       <div
         className={`text-white p-6 rounded-b-3xl shadow-lg relative overflow-hidden border border-white/10 ${
           isPreview ? "mt-6" : ""
@@ -1079,19 +1061,272 @@ export default function DashboardClient() {
         </div>
       </div>
 
+      {/* ✅ BANNERS (solo imagen, sin click) */}
       <div className="px-4 sm:px-6 mt-5">
         <BannerCarousel items={banners} />
       </div>
 
-      {/* El resto del archivo queda EXACTAMENTE igual al tuyo.
-          No lo recorto para evitar “cambios a medias”. */}
-      {/* --- */}
-      {/* NOTA: si querés, en el próximo paso atacamos imágenes remotas (Supabase news)
-          y el split por dynamic import para bajar TBT. */}
-      {/* --- */}
+      {/* SELLOS (sin superposición) */}
+      <div className="px-4 sm:px-6 mt-4">
+        <StampGrid current={stamps} onRedeem={handleRedeem} redeeming={redeeming} />
+        {redeemError && (
+          <div className="mt-3 text-xs font-bold text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
+            {redeemError}
+          </div>
+        )}
+      </div>
 
-      {/* === PEGAR AQUÍ EL RESTO DE TU ARCHIVO SIN CAMBIOS === */}
-      {/* Para no arriesgar, mantené todo lo restante tal cual lo tenés hoy. */}
+      {/* SERVICIOS */}
+      <div className="px-4 sm:px-6 mt-6">
+        <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wide">Servicios</h2>
+            <span className="text-[11px] text-slate-500">Accesos rápidos</span>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <Link
+              href="/carta"
+              className="group rounded-2xl border border-slate-200 bg-slate-50 hover:bg-white hover:border-slate-300 transition p-4 flex items-center gap-3"
+            >
+              <div className="w-11 h-11 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center">
+                <IconMenu className="w-6 h-6" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-sm font-extrabold text-slate-900">Carta</div>
+                <div className="text-[11px] text-slate-500">Pedí desde la app</div>
+              </div>
+            </Link>
+
+            <Link
+              href="/choperas"
+              className="group rounded-2xl border border-slate-200 bg-slate-50 hover:bg-white hover:border-slate-300 transition p-4 flex items-center gap-3"
+            >
+              <div className="w-11 h-11 rounded-2xl bg-blue-100 text-blue-700 flex items-center justify-center">
+                <IconBeer className="w-6 h-6" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-sm font-extrabold text-slate-900">Choperas</div>
+                <div className="text-[11px] text-slate-500">Eventos y barriles</div>
+              </div>
+            </Link>
+
+            <Link
+              href="/beneficios"
+              className="group rounded-2xl border border-slate-200 bg-slate-50 hover:bg-white hover:border-slate-300 transition p-4 flex items-center gap-3"
+            >
+              <div className="w-11 h-11 rounded-2xl bg-purple-100 text-purple-700 flex items-center justify-center">
+                <IconGift className="w-6 h-6" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-sm font-extrabold text-slate-900">Beneficios</div>
+                <div className="text-[11px] text-slate-500">Canjes y promos</div>
+              </div>
+            </Link>
+
+            <Link
+              href="/mis-pedidos"
+              className="group rounded-2xl border border-slate-200 bg-slate-50 hover:bg-white hover:border-slate-300 transition p-4 flex items-center gap-3"
+            >
+              <div className="w-11 h-11 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                <IconBike className="w-6 h-6" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-sm font-extrabold text-slate-900">Seguimiento</div>
+                <div className="text-[11px] text-slate-500">Estado del pedido</div>
+              </div>
+            </Link>
+          </div>
+        </div>
+      </div>
+
+      {/* NOVEDADES */}
+      <div className="px-4 sm:px-6 mt-6">
+        <div className="flex justify-between items-center mb-3">
+          <h2 className="font-bold text-slate-800">Novedades & Eventos</h2>
+        </div>
+
+        <div className="space-y-4">
+          {news.length === 0 ? (
+            <div className="bg-white border border-slate-200 rounded-2xl p-5">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-slate-100 text-slate-700 flex items-center justify-center">
+                  <IconGift className="w-6 h-6" />
+                </div>
+                <div>
+                  <p className="text-sm font-extrabold text-slate-900">Novedades en camino</p>
+                  <p className="text-sm text-slate-600">
+                    Si publicás una noticia, acá te mostramos las 2 últimas automáticamente.
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            news.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => openNewsModal(item)}
+                className="w-full text-left bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm hover:border-slate-300 transition active:scale-[0.99]"
+              >
+                {item.image_url ? (
+                  <ResponsiveMedia
+                    src={item.image_url}
+                    alt={String(item.title || "Novedad")}
+                    aspectRatio="21/9"
+                    fit="contain"
+                    bgClassName="bg-slate-100"
+                  />
+                ) : (
+                  <div className="w-full bg-linear-to-br from-slate-100 via-white to-slate-100" style={{ aspectRatio: "16/9" }} />
+                )}
+
+                <div className="p-4">
+                  <div className="flex items-center gap-2 mb-1">
+                    {item.category ? (
+                      <span className="text-[10px] font-black uppercase tracking-wide px-2 py-1 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
+                        {item.category}
+                      </span>
+                    ) : null}
+                    {item.published_at || item.created_at ? (
+                      <span className="text-[11px] text-slate-500">
+                        {formatDateTime(String(item.published_at || item.created_at))}
+                      </span>
+                    ) : null}
+                  </div>
+
+                  <h3 className="font-bold text-slate-800 mb-1">{item.title}</h3>
+                  <p className="text-sm text-slate-600 line-clamp-2">{item.summary || item.content}</p>
+                  <p className="mt-2 text-[11px] font-bold text-emerald-700">Ver detalle</p>
+                </div>
+              </button>
+            ))
+          )}
+        </div>
+      </div>
+
+      {/* MODAL NOVEDAD */}
+      {newsModalOpen && selectedNews && (
+        <div className="fixed inset-0 z-999 bg-black/50 flex items-center justify-center p-4">
+          <div className="absolute inset-0" onClick={closeNewsModal} />
+
+          <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden max-h-[calc(100dvh-2rem)] flex flex-col">
+            <div className="p-4 bg-slate-900 text-white shrink-0">
+              <p className="text-xs font-bold text-emerald-300 uppercase tracking-wider">Novedades AlFra</p>
+              <h3 className="text-lg font-black leading-snug">{selectedNews.title || "Novedad"}</h3>
+
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-200/80">
+                {selectedNews.category ? (
+                  <span className="px-2 py-1 rounded-full bg-white/10 border border-white/10 font-bold uppercase tracking-wide">
+                    {selectedNews.category}
+                  </span>
+                ) : null}
+                {selectedDate ? <span>{formatDateTime(String(selectedDate))}</span> : null}
+              </div>
+            </div>
+
+            <div className="overflow-y-auto pb-safe">
+              {selectedNews.image_url ? (
+                <ResponsiveMedia
+                  src={selectedNews.image_url}
+                  alt={String(selectedNews.title || "Novedad")}
+                  aspectRatio="21/9"
+                  fit="contain"
+                />
+              ) : null}
+
+              <div className="p-4">
+                {selectedNews.summary ? <p className="text-sm font-bold text-slate-800">{selectedNews.summary}</p> : null}
+
+                {selectedNews.content ? (
+                  <div className="mt-3 text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">{selectedNews.content}</div>
+                ) : (
+                  <p className="mt-3 text-sm text-slate-600">Sin contenido.</p>
+                )}
+
+                <button
+                  onClick={closeNewsModal}
+                  className="mt-5 w-full bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold py-3 rounded-xl border border-slate-200"
+                >
+                  Cerrar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL VOUCHER (sellos) */}
+      {voucher && (
+        <div className="fixed inset-0 z-999 bg-black/50 flex items-center justify-center p-4">
+          <div className="absolute inset-0" onClick={() => setVoucher(null)} />
+
+          <div className="relative w-full max-w-md bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden max-h-[calc(100dvh-2rem)] flex flex-col">
+            <div className="p-4 bg-slate-900 text-white shrink-0">
+              <p className="text-xs font-bold text-emerald-300 uppercase tracking-wider">Voucher AlFra</p>
+              <h3 className="text-lg font-black">{voucher.reward_name}</h3>
+            </div>
+
+            <div className="p-4 space-y-3 overflow-y-auto pb-safe">
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
+                <p className="text-[11px] text-slate-500 font-bold uppercase">Código</p>
+                <p className="text-xl font-black text-slate-900 tracking-wider break-all">{voucher.code}</p>
+
+                <div className="mt-2 w-full overflow-x-auto">
+                  <div className="min-w-[320px] flex justify-center">
+                    <svg ref={barcodeRef} className="w-full max-w-[520px]" />
+                  </div>
+                </div>
+
+                <p className="mt-2 text-[10px] text-slate-500 text-center">Escaneá este código en caja (CODE128).</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-white border border-slate-200 rounded-xl p-3">
+                  <p className="text-[11px] text-slate-500 font-bold uppercase">Emitido</p>
+                  <p className="text-sm font-bold text-slate-800">{formatDateTime(voucher.issued_at)}</p>
+                </div>
+                <div className="bg-white border border-slate-200 rounded-xl p-3">
+                  <p className="text-[11px] text-slate-500 font-bold uppercase">Vence</p>
+                  <p className="text-sm font-black text-red-700">{formatDateTime(voucher.expires_at)}</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={handleCopyCode} className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl">
+                  Copiar código
+                </button>
+
+                <button onClick={handleSavePdf} className="bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 rounded-xl">
+                  Guardar PDF
+                </button>
+
+                <a
+                  href={whatsappLink()}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-center bg-green-600 hover:bg-green-500 text-white font-bold py-3 rounded-xl"
+                >
+                  WhatsApp
+                </a>
+
+                <button
+                  onClick={handleShare}
+                  className="bg-slate-100 hover:bg-slate-200 text-slate-900 font-bold py-3 rounded-xl border border-slate-200"
+                >
+                  Compartir
+                </button>
+              </div>
+
+              <button onClick={() => setVoucher(null)} className="w-full bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold py-3 rounded-xl">
+                Cerrar
+              </button>
+
+              <p className="text-[11px] text-slate-500">Mostralo en caja para canjear. Válido por 10 días desde la emisión.</p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
