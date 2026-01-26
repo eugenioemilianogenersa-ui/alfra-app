@@ -3,13 +3,12 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 
-const CHATBASE_SCRIPT_ID = "chatbase-script";
+const CHATBASE_BOT_ID = "H9jhv5J1pN5hjSGBjGGxx"; // ✅ tu bot id real
 const CHATBASE_SRC = "https://www.chatbase.co/embed.min.js";
 
 function initChatbaseProxy() {
   const w = window as any;
 
-  // Snippet oficial (proxy)
   if (!w.chatbase || w.chatbase("getState") !== "initialized") {
     w.chatbase = (...args: any[]) => {
       if (!w.chatbase.q) w.chatbase.q = [];
@@ -27,7 +26,8 @@ function initChatbaseProxy() {
 
 function ensureChatbaseScript(): Promise<void> {
   return new Promise((resolve, reject) => {
-    if (document.getElementById(CHATBASE_SCRIPT_ID)) {
+    // ✅ Chatbase identifica el bot por el ID del script (tu BOT_ID)
+    if (document.getElementById(CHATBASE_BOT_ID)) {
       resolve();
       return;
     }
@@ -35,10 +35,10 @@ function ensureChatbaseScript(): Promise<void> {
     initChatbaseProxy();
 
     const script = document.createElement("script");
-    script.id = CHATBASE_SCRIPT_ID;
+    script.id = CHATBASE_BOT_ID; // ✅ CRÍTICO: debe ser el bot id
     script.src = CHATBASE_SRC;
-    (script as any).domain = "www.chatbase.co";
     script.async = true;
+    (script as any).domain = "www.chatbase.co";
 
     script.onload = () => resolve();
     script.onerror = () => reject(new Error("Chatbase script failed to load"));
@@ -47,46 +47,47 @@ function ensureChatbaseScript(): Promise<void> {
   });
 }
 
-function isChatbaseReady(): boolean {
-  const w = window as any;
-  // Con el embed, esto puede variar; validamos que sea function y que no explote getState
-  if (typeof w.chatbase !== "function") return false;
-  try {
-    // Si ya está inicializado, mejor
-    const st = w.chatbase("getState");
-    return st === "initialized" || st === "ready" || st === "open" || st === "closed";
-  } catch {
-    // Si getState no responde aún, no está listo
-    return false;
-  }
+async function wait(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
-async function waitChatbaseReady(timeoutMs = 6000): Promise<boolean> {
+async function openChatbaseWithRetries(timeoutMs = 6000) {
+  const w = window as any;
   const start = Date.now();
+
   while (Date.now() - start < timeoutMs) {
-    if (isChatbaseReady()) return true;
-    await new Promise((r) => setTimeout(r, 120));
+    if (typeof w.chatbase === "function") {
+      try {
+        w.chatbase("open");
+        return true;
+      } catch {}
+      try {
+        w.chatbase("show");
+        return true;
+      } catch {}
+    }
+    await wait(150);
   }
+
   return false;
 }
 
 function unloadChatbase() {
   const w = window as any;
 
-  // 1) remover script
-  const script = document.getElementById(CHATBASE_SCRIPT_ID);
+  // remover script por bot id
+  const script = document.getElementById(CHATBASE_BOT_ID);
   if (script) script.remove();
 
-  // 2) remover nodos típicos del widget (varía según versión)
+  // remover iframes del widget
   document.querySelectorAll("iframe[src*='chatbase']").forEach((el) => el.remove());
 
-  // algunos embeds crean contenedores sueltos; limpiamos genérico sin romper tu UI
+  // remover wrappers (varía según versión)
   document.querySelectorAll("[id*='chatbase'], [class*='chatbase']").forEach((el) => {
-    // Ojo: evitamos tocar tu contenido si algún día usás “chatbase” como clase (no parece el caso)
     (el as HTMLElement).remove();
   });
 
-  // 3) reset global
+  // reset global
   if (w.chatbase) {
     try {
       delete w.chatbase;
@@ -103,12 +104,9 @@ export default function AyudaClient() {
 
   useEffect(() => {
     mountedRef.current = true;
-
-    // No cargamos automáticamente: lo hacemos on-demand al tocar “Abrir chat”.
-    // Pero dejamos el teardown sí o sí.
     return () => {
       mountedRef.current = false;
-      unloadChatbase();
+      unloadChatbase(); // ✅ al salir de /ayuda se va la burbuja
     };
   }, []);
 
@@ -118,33 +116,10 @@ export default function AyudaClient() {
 
     try {
       await ensureChatbaseScript();
-
-      // esperar a que el embed inicialice
-      const ready = await waitChatbaseReady(6000);
+      const ok = await openChatbaseWithRetries(7000);
       if (!mountedRef.current) return;
 
-      const w = window as any;
-      if (typeof w.chatbase === "function") {
-        // Intentos compatibles (según versión)
-        try {
-          w.chatbase("open");
-          setStatus("idle");
-          return;
-        } catch {}
-        try {
-          w.chatbase("show");
-          setStatus("idle");
-          return;
-        } catch {}
-
-        // Si no existe open/show, al menos dejamos que aparezca el botón
-        if (ready) {
-          setStatus("idle");
-          return;
-        }
-      }
-
-      setStatus("error");
+      setStatus(ok ? "idle" : "error");
     } catch {
       if (!mountedRef.current) return;
       setStatus("error");
@@ -196,7 +171,7 @@ export default function AyudaClient() {
 
           {status === "error" && (
             <p className="text-[11px] text-rose-200 mt-3">
-              No se pudo abrir el chat. Probá recargar la página o revisar conexión.
+              No se pudo abrir el chat. Probá recargar la página (puede ser caché de la PWA).
             </p>
           )}
         </div>
