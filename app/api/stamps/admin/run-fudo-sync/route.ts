@@ -1,3 +1,4 @@
+// C:\Dev\alfra-app\app\api\stamps\admin\run-fudo-sync\route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
@@ -77,13 +78,14 @@ async function run(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const base = process.env.NEXT_PUBLIC_SITE_URL || "https://alfra-app.vercel.app";
+  // ✅ base dinámico (dominio actual). No hardcode.
+  const base = new URL(req.url).origin;
 
   // Si tenés INTERNAL_PUSH_KEY, lo mandamos (por si protegés endpoints internos)
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (process.env.INTERNAL_PUSH_KEY) headers["x-internal-key"] = process.env.INTERNAL_PUSH_KEY;
 
-  const r = await fetch(`${base}/api/fudo/sync`, { method: "GET", headers });
+  const r = await fetch(`${base}/api/fudo/sync`, { method: "GET", headers, cache: "no-store" });
   const j = await r.json().catch(() => null);
 
   if (!r.ok) {

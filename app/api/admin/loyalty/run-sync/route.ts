@@ -1,3 +1,4 @@
+// C:\Dev\alfra-app\app\api\admin\loyalty\run-sync\route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
@@ -32,13 +33,23 @@ export async function POST(req: NextRequest) {
     const isStaff = actorRole === "staff";
     if (!isAdmin && !isStaff) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-    const base = process.env.NEXT_PUBLIC_SITE_URL || "https://alfra-app.vercel.app";
+    // base dinámico (dominio actual)
+    const base = new URL(req.url).origin;
 
     // llamamos al endpoint ya existente (server->server)
-    const r = await fetch(`${base}/api/loyalty/fudo-sync`, { method: "GET" });
+    const r = await fetch(`${base}/api/loyalty/fudo-sync`, {
+      method: "GET",
+      cache: "no-store",
+    });
+
     const json = await r.json().catch(() => ({} as any));
 
-    if (!r.ok) return NextResponse.json({ error: json?.error || `Error ${r.status}` }, { status: 500 });
+    if (!r.ok) {
+      return NextResponse.json(
+        { error: json?.error || `Upstream error ${r.status}` },
+        { status: 502 }
+      );
+    }
 
     return NextResponse.json({ ok: true, run_by: actorRole, result: json });
   } catch (e: any) {

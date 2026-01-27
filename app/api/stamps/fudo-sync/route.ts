@@ -1,3 +1,4 @@
+// C:\Dev\alfra-app\app\api\stamps\fudo-sync\route.ts
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getFudoSales, getFudoSaleDetail } from "@/lib/fudoClient";
@@ -63,6 +64,9 @@ export async function GET(req: Request) {
       return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
     }
   }
+
+  // ✅ base dinámico (dominio actual)
+  const base = new URL(req.url).origin;
 
   console.log("🧷 [STAMPS] Fudo Sync Sellos (mesa/mostrador/delivery)...");
   const todayStartIso = getTodayStartIso();
@@ -178,10 +182,10 @@ export async function GET(req: Request) {
           if ((a as any)?.applied === true) {
             applied++;
 
-            const base = process.env.NEXT_PUBLIC_SITE_URL || "https://alfra-app.vercel.app";
             await fetch(`${base}/api/push/notify-stamps`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
+              cache: "no-store",
               body: JSON.stringify({ userId }),
             }).catch(() => null);
           }

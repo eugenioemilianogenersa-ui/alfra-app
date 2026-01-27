@@ -1,3 +1,4 @@
+// C:\Dev\alfra-app\app\api\orders\update-status\route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
@@ -122,6 +123,9 @@ export async function POST(req: NextRequest) {
     if (!id || !Number.isFinite(id) || !nextEstado) {
       return NextResponse.json({ error: "Datos incompletos" }, { status: 400 });
     }
+
+    // ✅ base dinámico (dominio actual)
+    const base = new URL(req.url).origin;
 
     // Auth: cookie o bearer
     const cookieAuth = await getUserFromCookie(req);
@@ -282,10 +286,10 @@ export async function POST(req: NextRequest) {
             });
 
             if ((a as any)?.applied === true) {
-              const base = process.env.NEXT_PUBLIC_SITE_URL || "https://alfra-app.vercel.app";
               await fetch(`${base}/api/push/notify-stamps`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
+                cache: "no-store",
                 body: JSON.stringify({ userId: userIdForStamp }),
               }).catch(() => null);
             }

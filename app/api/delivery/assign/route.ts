@@ -1,3 +1,4 @@
+// C:\Dev\alfra-app\app\api\delivery\assign\route.ts
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -45,7 +46,9 @@ export async function POST(req: Request) {
     }
 
     const deliveryNombre =
-      user.display_name || (user.email ? user.email.split("@")[0] : null) || "Repartidor";
+      user.display_name ||
+      (user.email ? user.email.split("@")[0] : null) ||
+      "Repartidor";
 
     // 2) Guardar en ORDERS (DENORMALIZADO) -> para que STAFF lo vea sin joins/RLS
     //    IMPORTANTÍSIMO: NO TOCAR estado acá.
@@ -88,19 +91,25 @@ export async function POST(req: Request) {
     const shouldNotify = !prevDeliveryUserId || prevDeliveryUserId !== deliveryUserId;
 
     if (shouldNotify) {
-      const origin = req.headers.get("origin") || "https://alfra-app.vercel.app";
-      const base = process.env.NEXT_PUBLIC_SITE_URL || origin;
+      // base dinámico (dominio actual). No usar origin header ni hardcodear.
+      const base = new URL(req.url).origin;
 
       const headers: Record<string, string> = { "Content-Type": "application/json" };
       if (process.env.INTERNAL_PUSH_KEY) {
         headers["x-internal-key"] = process.env.INTERNAL_PUSH_KEY;
       }
 
-      await fetch(`${base}/api/push/notify-delivery-assigned`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ orderId }),
-      });
+      // No romper la asignación si el push falla
+      try {
+        await fetch(`${base}/api/push/notify-delivery-assigned`, {
+          method: "POST",
+          headers,
+          cache: "no-store",
+          body: JSON.stringify({ orderId }),
+        });
+      } catch {
+        // silencioso a propósito
+      }
     }
 
     return NextResponse.json({
@@ -111,7 +120,7 @@ export async function POST(req: Request) {
     });
   } catch (error: any) {
     return NextResponse.json(
-      { ok: false, error: error.message },
+      { ok: false, error: error?.message || "Server error" },
       { status: 500 }
     );
   }

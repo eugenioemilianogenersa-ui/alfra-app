@@ -1,3 +1,4 @@
+// C:\Dev\alfra-app\app\api\stamps\apply\route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
@@ -61,6 +62,9 @@ export async function POST(req: NextRequest) {
     const auth = await getAuth(req);
     if (!auth?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+    // ✅ base dinámico (dominio actual)
+    const base = new URL(req.url).origin;
+
     const body = (await req.json().catch(() => null)) as Body | null;
 
     const userId = String(body?.userId || "");
@@ -108,10 +112,10 @@ export async function POST(req: NextRequest) {
 
     // ✅ PUSH solo si aplicó realmente (no daily_limit / no dup)
     if ((result as any)?.applied === true) {
-      const base = process.env.NEXT_PUBLIC_SITE_URL || "https://alfra-app.vercel.app";
       await fetch(`${base}/api/push/notify-stamps`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        cache: "no-store",
         body: JSON.stringify({ userId }),
       }).catch(() => null);
     }

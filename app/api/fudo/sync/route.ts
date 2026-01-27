@@ -1,3 +1,4 @@
+// C:\Dev\alfra-app\app\api\fudo\sync\route.ts
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getFudoSales, getFudoSaleDetail } from "@/lib/fudoClient";
@@ -98,6 +99,9 @@ export async function GET(req: Request) {
   // ✅ Si viene cron_secret, exigimos auth pro
   const denied = requireCronAuthIfPresent(req);
   if (denied) return denied;
+
+  // ✅ base dinámico (dominio actual). Evita hardcode y env inconsistentes.
+  const base = new URL(req.url).origin;
 
   console.log("🔄 Iniciando Sync Fudo -> Supabase...");
   const todayStartIso = getTodayStartIso();
@@ -314,10 +318,10 @@ export async function GET(req: Request) {
                 // Push SOLO si aplicó realmente
                 if ((a as any)?.applied === true) {
                   try {
-                    const base = process.env.NEXT_PUBLIC_SITE_URL || "https://alfra-app.vercel.app";
                     await fetch(`${base}/api/push/notify-stamps`, {
                       method: "POST",
                       headers: { "Content-Type": "application/json" },
+                      cache: "no-store",
                       body: JSON.stringify({ userId: userIdForSale }),
                     });
                     await logSync({
@@ -475,10 +479,10 @@ export async function GET(req: Request) {
 
               if ((a as any)?.applied === true) {
                 try {
-                  const base = process.env.NEXT_PUBLIC_SITE_URL || "https://alfra-app.vercel.app";
                   await fetch(`${base}/api/push/notify-stamps`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
+                    cache: "no-store",
                     body: JSON.stringify({ userId: finalUserId }),
                   });
                   await logSync({
@@ -510,10 +514,10 @@ export async function GET(req: Request) {
           ["en preparación", "listo para entregar", "enviado", "entregado", "cancelado"].includes(finalEstado)
         ) {
           try {
-            const base = process.env.NEXT_PUBLIC_SITE_URL || "https://alfra-app.vercel.app";
             await fetch(`${base}/api/push/notify-order-status`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
+              cache: "no-store",
               body: JSON.stringify({ orderId: upsertedOrder.id, estado: finalEstado }),
             });
             await logSync({
@@ -618,13 +622,15 @@ export async function GET(req: Request) {
                   });
 
                   try {
-                    const base = process.env.NEXT_PUBLIC_SITE_URL || "https://alfra-app.vercel.app";
                     const headers: Record<string, string> = { "Content-Type": "application/json" };
-                    if (process.env.INTERNAL_PUSH_KEY) headers["x-internal-key"] = process.env.INTERNAL_PUSH_KEY;
+                    if (process.env.INTERNAL_PUSH_KEY) {
+                      headers["x-internal-key"] = process.env.INTERNAL_PUSH_KEY;
+                    }
 
                     await fetch(`${base}/api/push/notify-delivery-assigned`, {
                       method: "POST",
                       headers,
+                      cache: "no-store",
                       body: JSON.stringify({ orderId: upsertedOrder.id }),
                     });
 
