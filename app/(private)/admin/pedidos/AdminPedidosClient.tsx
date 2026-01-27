@@ -114,14 +114,18 @@ export default function AdminPedidosClient() {
   const isSyncingRef = useRef(false);
   const last429Ref = useRef<number | null>(null);
 
-  // ✅ debounce para no spamear queries en realtime / polling
+  // Anti-spam / debounce para refreshes (realtime + polling + acciones UI)
   const refreshTimerRef = useRef<number | null>(null);
-  const scheduleRefresh = (ms = 250) => {
+  const scheduleRefresh = (ms = 350) => {
     if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current);
     refreshTimerRef.current = window.setTimeout(() => {
       cargarPedidos();
     }, ms);
   };
+
+  // Guardas para evitar queries superpuestas
+  const isFetchingRef = useRef(false);
+  const lastFetchAtRef = useRef<number>(0);
 
   const cargarRepartidores = async () => {
     try {
@@ -163,32 +167,48 @@ export default function AdminPedidosClient() {
 
   const cargarPedidos = async (repartidoresList?: Profile[]) => {
     if (!myRole) return;
-    const repsToUse = repartidoresList || repartidores;
 
-    let q = supabase.from("orders").select("*").order("id", { ascending: false });
+    // evita superposición y reduce spam si entran varios triggers juntos
+    const now = Date.now();
+    if (isFetchingRef.current) return;
+    if (now - lastFetchAtRef.current < 250) return;
 
-    if (myRole === "staff") {
-      q = q.gte("creado_en", getShiftStart());
-    } else {
-      if (adminMode === "LIVE") q = q.gte("creado_en", getShiftStart());
-      else if (adminMode === "DATE") {
-        const { start, end } = getDayRange(selectedDate);
-        q = q.gte("creado_en", start).lte("creado_en", end);
-      } else if (adminMode === "ID") {
-        const n = Number(searchId);
-        if (!searchId || Number.isNaN(n)) return setPedidos([]);
-        q = q.eq("id", n);
-      } else if (adminMode === "ALL") q = q.limit(200);
+    isFetchingRef.current = true;
+    lastFetchAtRef.current = now;
+
+    try {
+      const repsToUse = repartidoresList || repartidores;
+
+      let q = supabase.from("orders").select("*").order("id", { ascending: false });
+
+      if (myRole === "staff") {
+        q = q.gte("creado_en", getShiftStart());
+      } else {
+        if (adminMode === "LIVE") q = q.gte("creado_en", getShiftStart());
+        else if (adminMode === "DATE") {
+          const { start, end } = getDayRange(selectedDate);
+          q = q.gte("creado_en", start).lte("creado_en", end);
+        } else if (adminMode === "ID") {
+          const n = Number(searchId);
+          if (!searchId || Number.isNaN(n)) {
+            setPedidos([]);
+            return;
+          }
+          q = q.eq("id", n);
+        } else if (adminMode === "ALL") q = q.limit(200);
+      }
+
+      const { data, error } = await q;
+      if (error) {
+        console.error(error.message);
+        return;
+      }
+
+      const enriched = await enrich(data ?? [], repsToUse);
+      setPedidos(enriched as Order[]);
+    } finally {
+      isFetchingRef.current = false;
     }
-
-    const { data, error } = await q;
-    if (error) {
-      console.error(error.message);
-      return;
-    }
-
-    const enriched = await enrich(data ?? [], repsToUse);
-    setPedidos(enriched as Order[]);
   };
 
   const syncFudo = async (forced?: boolean) => {
@@ -214,7 +234,7 @@ export default function AdminPedidosClient() {
     const { error } = await supabase.from("orders").delete().eq("id", id);
     if (!error) {
       setPedidos((prev) => prev.filter((p) => p.id !== id));
-      setTimeout(() => cargarPedidos(), 500);
+      setTimeout(() => scheduleRefresh(300), 350);
     }
   };
 
@@ -225,7 +245,7 @@ export default function AdminPedidosClient() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ orderId, deliveryUserId }),
     });
-    setTimeout(() => cargarPedidos(), 300);
+    scheduleRefresh(350);
   };
 
   const cambiarEstado = async (id: number, estado: string) => {
@@ -250,7 +270,7 @@ export default function AdminPedidosClient() {
     }
   };
 
-  // ✅ INIT (session/role) - se queda como estaba pero sin realtime acá
+  // INIT: session + role
   useEffect(() => {
     (async () => {
       const { data: session } = await supabase.auth.getSession();
@@ -273,62 +293,67 @@ export default function AdminPedidosClient() {
     // eslint-disable-next-line
   }, []);
 
-  /**
-   * ✅ REALTIME + FALLBACK POLLING
-   * IMPORTANTE: esto corre cuando myRole YA existe, así el WS se abre seguro.
-   */
+  // ✅ Realtime: se suscribe UNA sola vez cuando ya hay myRole
   useEffect(() => {
     if (!myRole) return;
 
-    // 1) primer fetch cuando ya tengo rol
-    cargarPedidos();
-
-    // 2) realtime con debounce
     const shiftStart = getShiftStart();
     const ordersFilter = `creado_en=gte.${shiftStart}`;
 
     const channel = supabase
-      .channel(`admin-live-${myRole}`)
+      .channel(`admin-pedidos-live-${myRole}`)
       .on(
         "postgres_changes",
         myRole === "staff"
           ? ({ event: "*", schema: "public", table: "orders", filter: ordersFilter } as any)
           : ({ event: "*", schema: "public", table: "orders" } as any),
-        () => scheduleRefresh(250)
+        () => scheduleRefresh(350)
       )
-      .on("postgres_changes", { event: "*", schema: "public", table: "deliveries" }, () => scheduleRefresh(250))
-      .subscribe((status) => {
-        // si querés debug rápido:
-        // console.log("realtime status:", status);
-      });
-
-    // 3) fallback polling liviano (no pega al sync, solo refresca UI)
-    const pollMs = myRole === "staff" ? 8000 : 10000;
-    const poll = window.setInterval(() => {
-      if (document.visibilityState === "visible") cargarPedidos();
-    }, pollMs);
-
-    // 4) tu sync Fudo automático (tal cual) para robustez
-    const syncInterval = window.setInterval(() => {
-      if (document.visibilityState === "visible") syncFudo();
-    }, 30000);
+      .on("postgres_changes", { event: "*", schema: "public", table: "deliveries" }, () => scheduleRefresh(350))
+      .subscribe();
 
     return () => {
-      if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current);
-      refreshTimerRef.current = null;
-
-      window.clearInterval(poll);
-      window.clearInterval(syncInterval);
-
       supabase.removeChannel(channel);
     };
     // eslint-disable-next-line
-  }, [myRole, adminMode, selectedDate, searchId, repartidores.length]);
+  }, [myRole]);
 
+  // ✅ Refetch cuando cambian filtros / role / repartidores listos
   useEffect(() => {
-    if (!loading && myRole) cargarPedidos();
+    if (!loading && myRole) scheduleRefresh(50);
     // eslint-disable-next-line
   }, [adminMode, selectedDate, searchId, myRole, loading, repartidores.length]);
+
+  // ✅ Polling fallback (SUAVE) - solo Supabase, NO Fudo
+  useEffect(() => {
+    if (!myRole) return;
+
+    const pollMs = myRole === "staff" ? 20000 : 30000; // 20s staff / 30s admin
+    const poll = window.setInterval(() => {
+      if (document.visibilityState === "visible") scheduleRefresh(0);
+    }, pollMs);
+
+    return () => window.clearInterval(poll);
+  }, [myRole]);
+
+  // ✅ Sync Fudo automático MUY lento (para no tocar Fudo de más)
+  useEffect(() => {
+    if (!myRole) return;
+
+    const syncMs = 5 * 60 * 1000; // 5 minutos
+    const t = window.setInterval(() => {
+      if (document.visibilityState === "visible") syncFudo();
+    }, syncMs);
+
+    return () => window.clearInterval(t);
+  }, [myRole]);
+
+  useEffect(() => {
+    return () => {
+      if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = null;
+    };
+  }, []);
 
   if (loading) return <div className="p-10 text-center text-slate-500 animate-pulse">Iniciando...</div>;
 
@@ -416,10 +441,10 @@ export default function AdminPedidosClient() {
                   onChange={(e) => setSearchId(e.target.value)}
                   placeholder="# ID"
                   className="bg-slate-800 border border-slate-700 text-white text-sm rounded px-3 py-1.5 w-full md:w-32 focus:outline-none"
-                  onKeyDown={(e) => e.key === "Enter" && cargarPedidos()}
+                  onKeyDown={(e) => e.key === "Enter" && scheduleRefresh(0)}
                 />
                 <button
-                  onClick={() => cargarPedidos()}
+                  onClick={() => scheduleRefresh(0)}
                   className="bg-white text-slate-900 px-3 py-1.5 rounded text-xs font-bold hover:bg-slate-200"
                 >
                   BUSCAR
