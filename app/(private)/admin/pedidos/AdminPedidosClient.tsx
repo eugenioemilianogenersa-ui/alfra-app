@@ -114,7 +114,7 @@ export default function AdminPedidosClient() {
   const isSyncingRef = useRef(false);
   const last429Ref = useRef<number | null>(null);
 
-  // ✅ debounce para no spamear queries en realtime
+  // ✅ debounce para no spamear queries en realtime / polling
   const refreshTimerRef = useRef<number | null>(null);
   const scheduleRefresh = (ms = 250) => {
     if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current);
@@ -250,6 +250,7 @@ export default function AdminPedidosClient() {
     }
   };
 
+  // ✅ INIT (session/role) - se queda como estaba pero sin realtime acá
   useEffect(() => {
     (async () => {
       const { data: session } = await supabase.auth.getSession();
@@ -262,22 +263,32 @@ export default function AdminPedidosClient() {
         .single();
 
       const r = String(profile?.role || "").toLowerCase();
-      setMyRole(r === "staff" ? "staff" : "admin");
+      const finalRole = (r === "staff" ? "staff" : "admin") as "staff" | "admin";
+      setMyRole(finalRole);
 
       await cargarRepartidores();
 
       setLoading(false);
     })();
+    // eslint-disable-next-line
+  }, []);
 
-    // ✅ Realtime “instantáneo” con debounce + (intento de filtro para STAFF)
+  /**
+   * ✅ REALTIME + FALLBACK POLLING
+   * IMPORTANTE: esto corre cuando myRole YA existe, así el WS se abre seguro.
+   */
+  useEffect(() => {
+    if (!myRole) return;
+
+    // 1) primer fetch cuando ya tengo rol
+    cargarPedidos();
+
+    // 2) realtime con debounce
     const shiftStart = getShiftStart();
-    const ordersFilter =
-      // si supabase soporta filter en realtime, esto reduce ruido para STAFF
-      // si no lo soporta en tu proyecto, igual queda el debounce y el query filtra.
-      `creado_en=gte.${shiftStart}`;
+    const ordersFilter = `creado_en=gte.${shiftStart}`;
 
     const channel = supabase
-      .channel("admin-live")
+      .channel(`admin-live-${myRole}`)
       .on(
         "postgres_changes",
         myRole === "staff"
@@ -285,25 +296,34 @@ export default function AdminPedidosClient() {
           : ({ event: "*", schema: "public", table: "orders" } as any),
         () => scheduleRefresh(250)
       )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "deliveries" },
-        () => scheduleRefresh(250)
-      )
-      .subscribe();
+      .on("postgres_changes", { event: "*", schema: "public", table: "deliveries" }, () => scheduleRefresh(250))
+      .subscribe((status) => {
+        // si querés debug rápido:
+        // console.log("realtime status:", status);
+      });
 
-    const i = setInterval(() => {
+    // 3) fallback polling liviano (no pega al sync, solo refresca UI)
+    const pollMs = myRole === "staff" ? 8000 : 10000;
+    const poll = window.setInterval(() => {
+      if (document.visibilityState === "visible") cargarPedidos();
+    }, pollMs);
+
+    // 4) tu sync Fudo automático (tal cual) para robustez
+    const syncInterval = window.setInterval(() => {
       if (document.visibilityState === "visible") syncFudo();
     }, 30000);
 
     return () => {
       if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current);
       refreshTimerRef.current = null;
+
+      window.clearInterval(poll);
+      window.clearInterval(syncInterval);
+
       supabase.removeChannel(channel);
-      clearInterval(i);
     };
     // eslint-disable-next-line
-  }, []);
+  }, [myRole, adminMode, selectedDate, searchId, repartidores.length]);
 
   useEffect(() => {
     if (!loading && myRole) cargarPedidos();
@@ -442,7 +462,17 @@ export default function AdminPedidosClient() {
                         className="ml-2 text-slate-300 hover:text-red-600 transition-colors p-1"
                         title="Eliminar"
                       >
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          width="16"
+                          height="16"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
                           <path d="M3 6h18" />
                           <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
                           <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
