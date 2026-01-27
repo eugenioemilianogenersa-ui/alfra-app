@@ -81,7 +81,10 @@ export default function ChoperasClient() {
     <main className="max-w-5xl mx-auto p-6 space-y-4">
       <header className="text-center space-y-1">
         <h1 className="text-3xl font-bold">Choperas & Eventos</h1>
-        <p className="opacity-80 text-sm">Pedidos y consultas para choperas o eventos.</p>
+
+        {/* ❌ antes: opacity-80 (en algunos Android se “lava”) */}
+        {/* ✅ ahora: color explícito, consistente en iOS/Android */}
+        <p className="text-sm text-slate-600">Pedidos y consultas para choperas o eventos.</p>
       </header>
 
       {loading && <p className="text-sm text-slate-500 text-center">Cargando...</p>}
@@ -100,7 +103,10 @@ export default function ChoperasClient() {
             {c.image_url ? (
               <ResponsiveMedia src={c.image_url} alt={c.title} aspectRatio="16/9" fit="cover" />
             ) : (
-              <div className="w-full bg-linear-to-br from-slate-100 via-white to-slate-100" style={{ aspectRatio: "16/9" }} />
+              <div
+                className="w-full bg-linear-to-br from-slate-100 via-white to-slate-100"
+                style={{ aspectRatio: "16/9" }}
+              />
             )}
 
             <div className="p-4 space-y-2">
