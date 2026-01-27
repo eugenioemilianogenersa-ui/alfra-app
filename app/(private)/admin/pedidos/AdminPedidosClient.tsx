@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabaseClient";
 import { updateOrderStatus } from "@/lib/updateOrderStatus";
 
@@ -114,18 +114,20 @@ export default function AdminPedidosClient() {
   const isSyncingRef = useRef(false);
   const last429Ref = useRef<number | null>(null);
 
-  // Anti-spam / debounce para refreshes (realtime + polling + acciones UI)
-  const refreshTimerRef = useRef<number | null>(null);
-  const scheduleRefresh = (ms = 350) => {
-    if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current);
-    refreshTimerRef.current = window.setTimeout(() => {
-      cargarPedidos();
-    }, ms);
-  };
-
   // Guardas para evitar queries superpuestas
   const isFetchingRef = useRef(false);
   const lastFetchAtRef = useRef<number>(0);
+
+  // ✅ refs para evitar "closures viejas" en realtime/polling
+  const cargarPedidosRef = useRef<(reps?: Profile[]) => Promise<void>>(async () => {});
+  const refreshTimerRef = useRef<number | null>(null);
+
+  const scheduleRefresh = useCallback((ms = 350) => {
+    if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current);
+    refreshTimerRef.current = window.setTimeout(() => {
+      void cargarPedidosRef.current();
+    }, ms);
+  }, []);
 
   const cargarRepartidores = async () => {
     try {
@@ -210,6 +212,14 @@ export default function AdminPedidosClient() {
       isFetchingRef.current = false;
     }
   };
+
+  // ✅ mantener SIEMPRE la versión actual de cargarPedidos en un ref (anti "closure vieja")
+  useEffect(() => {
+    cargarPedidosRef.current = async (reps?: Profile[]) => {
+      await cargarPedidos(reps);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [myRole, adminMode, selectedDate, searchId, repartidores]);
 
   const syncFudo = async (forced?: boolean) => {
     const now = Date.now();
@@ -316,13 +326,13 @@ export default function AdminPedidosClient() {
       supabase.removeChannel(channel);
     };
     // eslint-disable-next-line
-  }, [myRole]);
+  }, [myRole, scheduleRefresh]);
 
   // ✅ Refetch cuando cambian filtros / role / repartidores listos
   useEffect(() => {
     if (!loading && myRole) scheduleRefresh(50);
     // eslint-disable-next-line
-  }, [adminMode, selectedDate, searchId, myRole, loading, repartidores.length]);
+  }, [adminMode, selectedDate, searchId, myRole, loading, repartidores.length, scheduleRefresh]);
 
   // ✅ Polling fallback (SUAVE) - solo Supabase, NO Fudo
   useEffect(() => {
@@ -334,7 +344,7 @@ export default function AdminPedidosClient() {
     }, pollMs);
 
     return () => window.clearInterval(poll);
-  }, [myRole]);
+  }, [myRole, scheduleRefresh]);
 
   // ✅ Sync Fudo automático MUY lento (para no tocar Fudo de más)
   useEffect(() => {
