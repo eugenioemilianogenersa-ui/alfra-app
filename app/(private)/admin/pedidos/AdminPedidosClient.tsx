@@ -56,23 +56,41 @@ const estadoLeftBorder = (e?: string | null) =>
     cancelado: "border-l-red-500",
   } as any)[e ?? ""] ?? "border-l-slate-300";
 
-const pad = (n: number) => String(n).padStart(2, "0");
-const pgLocal = (d: Date) =>
-  `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(
-    d.getMinutes()
-  )}:${pad(d.getSeconds())}`;
-
-const getShiftStart = () => {
+// ✅ Turno bar: 19:00 -> 02:00 (cruza medianoche)
+// - Si ahora está fuera de turno (02:00..18:59) => null (mostrar vacío)
+const getShiftRangeISO = (): { start: string; end: string } | null => {
   const now = new Date();
-  const d = new Date(now);
-  if (now.getHours() < 4) d.setDate(d.getDate() - 1);
-  d.setHours(19, 0, 0, 0);
-  return pgLocal(d);
+  const h = now.getHours();
+
+  // Fuera de turno: 02:00..18:59
+  if (h >= 2 && h < 19) return null;
+
+  // En turno:
+  // - 19:00..23:59 => start hoy 19:00, end mañana 02:00
+  // - 00:00..01:59 => start ayer 19:00, end hoy 02:00
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+
+  const base = `${y}-${m}-${d}`;
+  const tz = "-03:00";
+
+  if (h >= 19) {
+    const start = new Date(`${base}T19:00:00${tz}`);
+    const end = new Date(`${base}T02:00:00${tz}`);
+    end.setDate(end.getDate() + 1);
+    return { start: start.toISOString(), end: end.toISOString() };
+  } else {
+    // 00:00..01:59 => ayer 19:00 -> hoy 02:00
+    const end = new Date(`${base}T02:00:00${tz}`);
+    const start = new Date(`${base}T19:00:00${tz}`);
+    start.setDate(start.getDate() - 1);
+    return { start: start.toISOString(), end: end.toISOString() };
+  }
 };
 
 // ✅ FIX DATE: rango ISO (timestamptz friendly) usando [start, nextDay)
 const getDayRangeISO = (dateString: string) => {
-  // dateString: "YYYY-MM-DD" (input type="date")
   const start = new Date(`${dateString}T00:00:00-03:00`);
   const next = new Date(`${dateString}T00:00:00-03:00`);
   next.setDate(next.getDate() + 1);
@@ -184,12 +202,23 @@ export default function AdminPedidosClient() {
 
       let q = supabase.from("orders").select("*").order("id", { ascending: false });
 
+      // STAFF siempre trabaja en modo TURNO ACTUAL
       if (myRole === "staff") {
-        q = q.gte("creado_en", getShiftStart());
+        const shift = getShiftRangeISO();
+        if (!shift) {
+          setPedidos([]);
+          return;
+        }
+        q = q.gte("creado_en", shift.start).lt("creado_en", shift.end);
       } else {
-        if (adminMode === "LIVE") q = q.gte("creado_en", getShiftStart());
-        else if (adminMode === "DATE") {
-          // ✅ FIX: ISO range (timestamptz) [start, next)
+        if (adminMode === "LIVE") {
+          const shift = getShiftRangeISO();
+          if (!shift) {
+            setPedidos([]);
+            return;
+          }
+          q = q.gte("creado_en", shift.start).lt("creado_en", shift.end);
+        } else if (adminMode === "DATE") {
           const { start, next } = getDayRangeISO(selectedDate);
           q = q.gte("creado_en", start).lt("creado_en", next);
         } else if (adminMode === "ID") {
@@ -305,12 +334,14 @@ export default function AdminPedidosClient() {
     // eslint-disable-next-line
   }, []);
 
-  // ✅ Realtime: se suscribe UNA sola vez cuando ya hay myRole
+  // ✅ Realtime: solo si hay turno abierto (si no, no te trae cosas raras)
   useEffect(() => {
     if (!myRole) return;
 
-    const shiftStart = getShiftStart();
-    const ordersFilter = `creado_en=gte.${shiftStart}`;
+    const shift = getShiftRangeISO();
+    if (!shift) return;
+
+    const ordersFilter = `creado_en=gte.${shift.start}`;
 
     const channel = supabase
       .channel(`admin-pedidos-live-${myRole}`)
@@ -340,7 +371,7 @@ export default function AdminPedidosClient() {
   useEffect(() => {
     if (!myRole) return;
 
-    const pollMs = myRole === "staff" ? 20000 : 30000; // 20s staff / 30s admin
+    const pollMs = myRole === "staff" ? 20000 : 30000;
     const poll = window.setInterval(() => {
       if (document.visibilityState === "visible") scheduleRefresh(0);
     }, pollMs);
@@ -348,11 +379,11 @@ export default function AdminPedidosClient() {
     return () => window.clearInterval(poll);
   }, [myRole, scheduleRefresh]);
 
-  // ✅ Sync Fudo automático MUY lento (para no tocar Fudo de más)
+  // ✅ Sync Fudo automático MUY lento
   useEffect(() => {
     if (!myRole) return;
 
-    const syncMs = 5 * 60 * 1000; // 5 minutos
+    const syncMs = 5 * 60 * 1000;
     const t = window.setInterval(() => {
       if (document.visibilityState === "visible") syncFudo();
     }, syncMs);
@@ -368,6 +399,14 @@ export default function AdminPedidosClient() {
   }, []);
 
   if (loading) return <div className="p-10 text-center text-slate-500 animate-pulse">Iniciando...</div>;
+
+  const shiftNow = getShiftRangeISO();
+  const liveHint =
+    adminMode === "LIVE"
+      ? shiftNow
+        ? "Mostrando pedidos del turno (19:00 a 02:00)"
+        : "Turno cerrado (abre 19:00)"
+      : null;
 
   return (
     <div className="p-4 md:p-6 space-y-6 pb-32 max-w-7xl mx-auto font-sans">
@@ -436,7 +475,7 @@ export default function AdminPedidosClient() {
           </div>
 
           <div className="flex-1 flex justify-end w-full md:w-auto">
-            {adminMode === "LIVE" && <span className="text-xs text-slate-400 font-mono">Mostrando pedidos desde las 19:00hs</span>}
+            {adminMode === "LIVE" && <span className="text-xs text-slate-400 font-mono">{liveHint}</span>}
             {adminMode === "ALL" && <span className="text-xs text-indigo-300 font-mono font-bold">⚠️ Historial completo (Límite 200)</span>}
             {adminMode === "DATE" && (
               <input
@@ -471,7 +510,7 @@ export default function AdminPedidosClient() {
         {pedidos.length === 0 ? (
           <div className="text-center py-20 bg-slate-50 rounded-xl border border-dashed border-slate-200">
             <p className="text-slate-400 font-medium">No se encontraron pedidos.</p>
-            {myRole === "staff" && <p className="text-xs text-slate-300 mt-2">Esperando pedidos del turno actual...</p>}
+            {myRole === "staff" && <p className="text-xs text-slate-300 mt-2">Turno cerrado. Esperando apertura...</p>}
           </div>
         ) : (
           pedidos.map((p) => {
