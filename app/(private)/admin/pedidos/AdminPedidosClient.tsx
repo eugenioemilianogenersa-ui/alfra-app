@@ -65,9 +65,6 @@ const getShiftRangeISO = (): { start: string; end: string } | null => {
   // Fuera de turno: 02:00..18:59
   if (h >= 2 && h < 19) return null;
 
-  // En turno:
-  // - 19:00..23:59 => start hoy 19:00, end mañana 02:00
-  // - 00:00..01:59 => start ayer 19:00, end hoy 02:00
   const y = now.getFullYear();
   const m = String(now.getMonth() + 1).padStart(2, "0");
   const d = String(now.getDate()).padStart(2, "0");
@@ -81,7 +78,6 @@ const getShiftRangeISO = (): { start: string; end: string } | null => {
     end.setDate(end.getDate() + 1);
     return { start: start.toISOString(), end: end.toISOString() };
   } else {
-    // 00:00..01:59 => ayer 19:00 -> hoy 02:00
     const end = new Date(`${base}T02:00:00${tz}`);
     const start = new Date(`${base}T19:00:00${tz}`);
     start.setDate(start.getDate() - 1);
@@ -114,6 +110,16 @@ const crearLinkWhatsApp = (numeroRaw?: string | null) => {
   let limpio = numeroRaw.replace(/\D/g, "");
   if (!limpio.startsWith("54")) limpio = `549${limpio}`;
   return `https://wa.me/${limpio}`;
+};
+
+// ✅ Orden robusto: creado_en DESC y desempate por id DESC
+const sortOrders = (list: Order[]) => {
+  return [...list].sort((a, b) => {
+    const ta = new Date(a.creado_en).getTime();
+    const tb = new Date(b.creado_en).getTime();
+    if (tb !== ta) return tb - ta;
+    return (b.id ?? 0) - (a.id ?? 0);
+  });
 };
 
 export default function AdminPedidosClient() {
@@ -200,7 +206,12 @@ export default function AdminPedidosClient() {
     try {
       const repsToUse = repartidoresList || repartidores;
 
-      let q = supabase.from("orders").select("*").order("id", { ascending: false });
+      // ✅ Orden en DB: creado_en DESC, id DESC
+      let q = supabase
+        .from("orders")
+        .select("*")
+        .order("creado_en", { ascending: false })
+        .order("id", { ascending: false });
 
       // STAFF siempre trabaja en modo TURNO ACTUAL
       if (myRole === "staff") {
@@ -238,7 +249,9 @@ export default function AdminPedidosClient() {
       }
 
       const enriched = await enrich(data ?? [], repsToUse);
-      setPedidos(enriched as Order[]);
+
+      // ✅ Orden final en frontend (por si enrich/realtime mezclan)
+      setPedidos(sortOrders(enriched as Order[]));
     } finally {
       isFetchingRef.current = false;
     }
@@ -334,7 +347,7 @@ export default function AdminPedidosClient() {
     // eslint-disable-next-line
   }, []);
 
-  // ✅ Realtime: solo si hay turno abierto (si no, no te trae cosas raras)
+  // ✅ Realtime: solo si hay turno abierto
   useEffect(() => {
     if (!myRole) return;
 
@@ -367,7 +380,7 @@ export default function AdminPedidosClient() {
     // eslint-disable-next-line
   }, [adminMode, selectedDate, searchId, myRole, loading, repartidores.length, scheduleRefresh]);
 
-  // ✅ Polling fallback (SUAVE) - solo Supabase, NO Fudo
+  // ✅ Polling fallback (SUAVE)
   useEffect(() => {
     if (!myRole) return;
 
