@@ -13,7 +13,6 @@ type Profile = {
   phone_normalized: string | null;
   locality: string | null;
   province: string | null;
-  avatar_url: string | null;
   created_at: string | null;
 };
 
@@ -39,7 +38,6 @@ export default function PerfilClient() {
   const [phone, setPhone] = useState("");
   const [locality, setLocality] = useState("");
   const [province, setProvince] = useState("");
-  const [avatarUrl, setAvatarUrl] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState("");
 
@@ -54,7 +52,11 @@ export default function PerfilClient() {
         return;
       }
 
-      const { data: profileData } = await supabase.from("profiles").select("*").eq("id", user.id).maybeSingle();
+      const { data: profileData } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", user.id)
+        .maybeSingle();
 
       const unified: Profile = {
         id: user.id,
@@ -64,7 +66,6 @@ export default function PerfilClient() {
         phone_normalized: profileData?.phone_normalized ?? "",
         locality: profileData?.locality ?? "",
         province: profileData?.province ?? "",
-        avatar_url: profileData?.avatar_url ?? "",
         created_at: (profileData?.created_at as string | undefined) ?? user.created_at ?? null,
       };
 
@@ -74,7 +75,6 @@ export default function PerfilClient() {
       setPhone(unified.phone ?? "");
       setLocality(unified.locality ?? "");
       setProvince(unified.province ?? "");
-      setAvatarUrl(unified.avatar_url ?? "");
 
       setLoading(false);
     }
@@ -112,7 +112,6 @@ export default function PerfilClient() {
       phone_normalized: normalized,
       locality: locality.trim() || null,
       province: province.trim() || null,
-      avatar_url: avatarUrl.trim() || null,
     };
 
     const { error } = await supabase.from("profiles").upsert(updates);
@@ -134,7 +133,6 @@ export default function PerfilClient() {
             phone_normalized: normalized,
             locality: updates.locality,
             province: updates.province,
-            avatar_url: updates.avatar_url,
           }
         : null
     );
@@ -181,16 +179,9 @@ export default function PerfilClient() {
 
       <div className="bg-white rounded-xl border shadow-sm p-5 space-y-4 max-w-3xl">
         <div className="flex items-center gap-3">
-          {avatarUrl ? (
-            <>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={avatarUrl} alt="Avatar" className="h-16 w-16 rounded-full object-cover border" />
-            </>
-          ) : (
-            <div className="h-16 w-16 rounded-full bg-slate-200 flex items-center justify-center text-slate-400">
-              <span className="text-lg">👤</span>
-            </div>
-          )}
+          <div className="h-16 w-16 rounded-full bg-slate-200 flex items-center justify-center text-slate-400 border">
+            <span className="text-lg">👤</span>
+          </div>
           <div>
             <p className="text-lg font-semibold text-slate-800">{displayName || "Sin nombre"}</p>
             <p className="text-sm text-slate-500">{profile.email}</p>
@@ -246,16 +237,6 @@ export default function PerfilClient() {
             />
           </div>
 
-          <div className="md:col-span-2">
-            <label className="text-xs font-medium text-slate-500">URL de avatar (opcional)</label>
-            <input
-              value={avatarUrl}
-              onChange={(e) => setAvatarUrl(e.target.value)}
-              className="w-full border rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500"
-              placeholder="https://..."
-            />
-          </div>
-
           <div className="md:col-span-2 flex items-center gap-3 pt-2">
             <button
               type="submit"
@@ -275,9 +256,7 @@ export default function PerfilClient() {
         <div className="grid grid-cols-2 gap-4 text-sm text-slate-700 pt-2 border-t mt-4">
           <div>
             <p className="text-xs text-slate-400 uppercase">Miembro desde</p>
-            <p className="font-mono text-xs">
-              {profile.created_at ? new Date(profile.created_at).toLocaleDateString() : "—"}
-            </p>
+            <p className="font-mono text-xs">{profile.created_at ? new Date(profile.created_at).toLocaleDateString() : "—"}</p>
           </div>
         </div>
       </div>
