@@ -70,12 +70,13 @@ const getShiftStart = () => {
   return pgLocal(d);
 };
 
-const getDayRange = (dateString: string) => {
-  const start = new Date(dateString);
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(dateString);
-  end.setHours(23, 59, 59, 999);
-  return { start: pgLocal(start), end: pgLocal(end) };
+// ✅ FIX DATE: rango ISO (timestamptz friendly) usando [start, nextDay)
+const getDayRangeISO = (dateString: string) => {
+  // dateString: "YYYY-MM-DD" (input type="date")
+  const start = new Date(`${dateString}T00:00:00-03:00`);
+  const next = new Date(`${dateString}T00:00:00-03:00`);
+  next.setDate(next.getDate() + 1);
+  return { start: start.toISOString(), next: next.toISOString() };
 };
 
 const formatFechaArgentina = (fechaString: string) => {
@@ -188,8 +189,9 @@ export default function AdminPedidosClient() {
       } else {
         if (adminMode === "LIVE") q = q.gte("creado_en", getShiftStart());
         else if (adminMode === "DATE") {
-          const { start, end } = getDayRange(selectedDate);
-          q = q.gte("creado_en", start).lte("creado_en", end);
+          // ✅ FIX: ISO range (timestamptz) [start, next)
+          const { start, next } = getDayRangeISO(selectedDate);
+          q = q.gte("creado_en", start).lt("creado_en", next);
         } else if (adminMode === "ID") {
           const n = Number(searchId);
           if (!searchId || Number.isNaN(n)) {
