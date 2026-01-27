@@ -9,17 +9,20 @@ import { useEffect } from "react";
 const alfraDeliveryIcon = L.icon({
   iconUrl: "/alfra-delivery.png",
   iconRetinaUrl: "/alfra-delivery.png",
-  iconSize: [60, 60],     // <-- AUMENTADO
-  iconAnchor: [30, 60],   // <-- Se ajusta al nuevo tamaño
-  popupAnchor: [0, -60],  // <-- Popup sube más
+  iconSize: [60, 60],
+  iconAnchor: [30, 60],
+  popupAnchor: [0, -60],
 });
 
-// --- Recentrar el mapa cuando cambia la posición ---
+// --- Recentrar el mapa cuando cambia la posición (sin tocar zoom) ---
 function RecenterAutomatically({ lat, lng }: { lat: number; lng: number }) {
   const map = useMap();
+
   useEffect(() => {
-    map.setView([lat, lng]);
+    const currentZoom = map.getZoom(); // mantiene el zoom actual
+    map.setView([lat, lng], currentZoom, { animate: true });
   }, [lat, lng, map]);
+
   return null;
 }
 
@@ -32,8 +35,11 @@ const DeliveryMap = ({ lat, lng }: DeliveryMapProps) => {
   return (
     <MapContainer
       center={[lat, lng]}
-      zoom={15}
-      style={{ height: "300px", width: "100%", borderRadius: "12px", zIndex: 0 }}
+      zoom={18}            // ✅ más zoom (calles)
+      minZoom={3}
+      maxZoom={19}
+      scrollWheelZoom={true}
+      style={{ height: "340px", width: "100%", borderRadius: "12px", zIndex: 0 }} // ✅ un poco más grande
     >
       <TileLayer
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
