@@ -1,3 +1,4 @@
+// C:\Dev\alfra-app\app\(private)\dashboard\DashboardClient.tsx
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -47,9 +48,7 @@ function ResponsiveMedia({
       <img
         src={src}
         alt={alt}
-        className={`absolute inset-0 w-full h-full ${
-          fit === "contain" ? "object-contain" : "object-cover"
-        } object-center`}
+        className={`absolute inset-0 w-full h-full ${fit === "contain" ? "object-contain" : "object-cover"} object-center`}
         loading="lazy"
         decoding="async"
       />
@@ -238,11 +237,7 @@ function StampGrid({
           top: -10px;
           border-radius: 3px;
           opacity: 0;
-          background: linear-gradient(
-            180deg,
-            rgba(252, 211, 77, 0.95),
-            rgba(16, 185, 129, 0.9)
-          );
+          background: linear-gradient(180deg, rgba(252, 211, 77, 0.95), rgba(16, 185, 129, 0.9));
           animation: alfraConfetti 1200ms ease-out forwards;
         }
         @keyframes alfraConfetti {
@@ -404,7 +399,6 @@ function BannerCarousel({ items }: { items: BannerItem[] }) {
   return (
     <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
       <div className="relative" onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
-        {/* SOLO VISUAL: sin Link, sin navegación */}
         {showImg ? (
           <div className="relative">
             <ResponsiveMedia
@@ -414,7 +408,6 @@ function BannerCarousel({ items }: { items: BannerItem[] }) {
               fit="contain"
               bgClassName="bg-slate-950"
             />
-            {/* chequeo imagen */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={current.imageSrc as string}
@@ -428,7 +421,6 @@ function BannerCarousel({ items }: { items: BannerItem[] }) {
           bgFallback
         )}
 
-        {/* Flechas SOLO desktop */}
         {total > 1 && (
           <>
             <button
@@ -451,7 +443,6 @@ function BannerCarousel({ items }: { items: BannerItem[] }) {
         )}
       </div>
 
-      {/* Dots mínimos */}
       {total > 1 && (
         <div className="flex items-center justify-center gap-2 py-3 bg-white">
           {safeItems.map((it, i) => (
@@ -502,7 +493,6 @@ function DashboardSkeleton() {
   );
 }
 
-/** Animación suave del número */
 function animateNumber(from: number, to: number, ms: number, onUpdate: (v: number) => void) {
   const start = performance.now();
   const diff = to - from;
@@ -555,7 +545,6 @@ export default function DashboardClient() {
     setSelectedNews(null);
   }
 
-  // ✅ Banners SOLO imagen (sin href)
   const banners: BannerItem[] = useMemo(
     () => [
       { id: "b1", imageSrc: "/banners/banner-1.jpg", alt: "Banner 1" },
@@ -677,21 +666,13 @@ export default function DashboardClient() {
       }
 
       async function refreshWallets(uid: string) {
-        const { data: wallet } = await supabase
-          .from("loyalty_wallets")
-          .select("points")
-          .eq("user_id", uid)
-          .maybeSingle();
+        const { data: wallet } = await supabase.from("loyalty_wallets").select("points").eq("user_id", uid).maybeSingle();
 
         const newPoints = wallet?.points != null ? Number(wallet.points) || 0 : 0;
         setPoints(newPoints);
         setPointsUi((prev) => (loading ? newPoints : prev));
 
-        const { data: sw } = await supabase
-          .from("stamps_wallet")
-          .select("current_stamps")
-          .eq("user_id", uid)
-          .maybeSingle();
+        const { data: sw } = await supabase.from("stamps_wallet").select("current_stamps").eq("user_id", uid).maybeSingle();
 
         if (sw?.current_stamps != null) setStamps(Number(sw.current_stamps) || 0);
       }
@@ -785,6 +766,8 @@ export default function DashboardClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [newsModalOpen]);
 
+  // ✅ FIX REAL: NO usar el reward_name hardcodeado del cliente.
+  // Después de canjear, leemos stamps_vouchers y tomamos title || reward_name.
   async function handleRedeem() {
     setRedeemError(null);
     setRedeeming(true);
@@ -803,7 +786,9 @@ export default function DashboardClient() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ reward_name: "Premio AlFra" }),
+        // ⛔️ NO fijamos el nombre acá. Si el endpoint lo ignora, ok. Si lo usa, te pisa el template.
+        // body: JSON.stringify({ reward_name: "Premio AlFra" }),
+        body: JSON.stringify({}),
       });
 
       const j = await r.json().catch(() => null);
@@ -817,11 +802,31 @@ export default function DashboardClient() {
 
       if (res?.current_stamps != null) setStamps(Number(res.current_stamps) || 0);
 
+      const code = String(res?.code || "").trim();
+      if (!code) {
+        setRedeemError("Canje OK pero faltó el código del voucher.");
+        return;
+      }
+
+      // ✅ Buscar el voucher recién emitido y tomar el template real.
+      const { data: sv, error: svErr } = await supabase
+        .from("stamps_vouchers")
+        .select("code, issued_at, expires_at, reward_name, title")
+        .eq("code", code)
+        .maybeSingle();
+
+      if (svErr) {
+        setRedeemError(`Canje OK, pero no pude leer el voucher: ${svErr.message}`);
+        return;
+      }
+
+      const reward = String((sv as any)?.title || (sv as any)?.reward_name || res?.reward_name || "Premio").trim() || "Premio";
+
       setVoucher({
-        code: String(res.code),
-        issued_at: String(res.issued_at),
-        expires_at: String(res.expires_at),
-        reward_name: String(res.reward_name || "Premio"),
+        code: String((sv as any)?.code || code),
+        issued_at: String((sv as any)?.issued_at || res?.issued_at || new Date().toISOString()),
+        expires_at: String((sv as any)?.expires_at || res?.expires_at || new Date().toISOString()),
+        reward_name: reward,
       });
     } catch (e: any) {
       setRedeemError(e?.message || "Error de red");
@@ -943,7 +948,7 @@ export default function DashboardClient() {
       </div>
 
       <div class="note">
-        Mostralo en caja para canjear. Válido por 10 días desde la emisión.
+        Mostralo en caja para canjear.
       </div>
     </div>
   </div>
@@ -1044,9 +1049,7 @@ export default function DashboardClient() {
                     <div className="mt-1 text-[11px] text-slate-200/75">Objetivo: {formatInt(benefitMeta.cost)} pts</div>
                   </div>
                 ) : (
-                  <p className="text-[11px] text-slate-200/75 mt-3">
-                    Publicá al menos 1 beneficio activo para ver el progreso al próximo canje.
-                  </p>
+                  <p className="text-[11px] text-slate-200/75 mt-3">Publicá al menos 1 beneficio activo para ver el progreso al próximo canje.</p>
                 )}
               </div>
 
@@ -1061,12 +1064,12 @@ export default function DashboardClient() {
         </div>
       </div>
 
-      {/* ✅ BANNERS (solo imagen, sin click) */}
+      {/* ✅ BANNERS */}
       <div className="px-4 sm:px-6 mt-5">
         <BannerCarousel items={banners} />
       </div>
 
-      {/* SELLOS (sin superposición) */}
+      {/* SELLOS */}
       <div className="px-4 sm:px-6 mt-4">
         <StampGrid current={stamps} onRedeem={handleRedeem} redeeming={redeeming} />
         {redeemError && (
@@ -1155,9 +1158,7 @@ export default function DashboardClient() {
                 </div>
                 <div>
                   <p className="text-sm font-extrabold text-slate-900">Novedades en camino</p>
-                  <p className="text-sm text-slate-600">
-                    Si publicás una noticia, acá te mostramos las 2 últimas automáticamente.
-                  </p>
+                  <p className="text-sm text-slate-600">Si publicás una noticia, acá te mostramos las 2 últimas automáticamente.</p>
                 </div>
               </div>
             </div>
@@ -1189,9 +1190,7 @@ export default function DashboardClient() {
                       </span>
                     ) : null}
                     {item.published_at || item.created_at ? (
-                      <span className="text-[11px] text-slate-500">
-                        {formatDateTime(String(item.published_at || item.created_at))}
-                      </span>
+                      <span className="text-[11px] text-slate-500">{formatDateTime(String(item.published_at || item.created_at))}</span>
                     ) : null}
                   </div>
 
@@ -1227,12 +1226,7 @@ export default function DashboardClient() {
 
             <div className="overflow-y-auto pb-safe">
               {selectedNews.image_url ? (
-                <ResponsiveMedia
-                  src={selectedNews.image_url}
-                  alt={String(selectedNews.title || "Novedad")}
-                  aspectRatio="21/9"
-                  fit="contain"
-                />
+                <ResponsiveMedia src={selectedNews.image_url} alt={String(selectedNews.title || "Novedad")} aspectRatio="21/9" fit="contain" />
               ) : null}
 
               <div className="p-4">
@@ -1322,7 +1316,7 @@ export default function DashboardClient() {
                 Cerrar
               </button>
 
-              <p className="text-[11px] text-slate-500">Mostralo en caja para canjear. Válido por 10 días desde la emisión.</p>
+              <p className="text-[11px] text-slate-500">Mostralo en caja para canjear.</p>
             </div>
           </div>
         </div>
